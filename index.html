@@ -5,1056 +5,1021 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MSFS Dispatch & EFB</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #e2e8f0; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
         
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* slate-900 */
+            color: #f8fafc; /* slate-50 */
+            overflow: hidden; /* Prevent body scroll, handle inside layout */
+        }
+        
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7); /* slate-800 with opacity */
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        
+        .tab-content.active {
+            display: flex;
+            flex-direction: column;
+        }
+        #dispatch.active, #briefing.active, #sop.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* SOP Checklist styling */
+        .sop-row:hover {
+            background-color: rgba(51, 65, 85, 0.5); /* slate-700 */
+        }
+
         /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #1e293b; }
         ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #64748b; }
-        
-        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; animation: fadeIn 0.3s ease-in-out; }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(5px); }
-            to { opacity: 1; transform: translateY(0); }
+
+        /* Alarm Overlay - high z-index but below header */
+        #alarm-overlay {
+            z-index: 40;
+            display: none;
+        }
+
+        /* Header - highest z-index so timer is always visible */
+        #main-header {
+            z-index: 50;
+            position: relative;
         }
         
-        @keyframes pulse-red {
-            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        /* Custom Modals (z-index highest) */
+        .modal-overlay {
+            z-index: 100;
         }
-        .alarm-active { animation: pulse-red 2s infinite; border-color: #ef4444 !important; }
     </style>
 </head>
-<body class="h-screen overflow-hidden flex selection:bg-blue-500 selection:text-white">
+<body class="h-screen flex flex-col">
 
-    <!-- NOTIFICATION TOAST CONTAINER -->
-    <div id="toast-container" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2"></div>
-
-    <!-- Sidebar -->
-    <aside class="w-72 bg-slate-900 border-r border-slate-700 flex flex-col h-full z-20 shadow-2xl relative">
-        <div class="p-6 border-b border-slate-700 bg-slate-800/50">
-            <h1 class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300 tracking-tight">
-                <i class="fa-solid fa-tablet-screen-button mr-2 text-blue-400"></i>EFB PRO
-            </h1>
-            <p class="text-xs text-slate-400 mt-1 uppercase tracking-widest font-semibold">MSFS 2024 Edition</p>
+    <header id="main-header" class="glass-panel border-b border-slate-700 p-4 flex justify-between items-center shrink-0">
+        <div class="flex items-center gap-3">
+            <div class="bg-blue-600 text-white p-2 rounded-lg">
+                <i class="fa-solid fa-plane-departure text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-black tracking-tight text-white leading-none">AERO<span class="text-blue-500">DISPATCH</span></h1>
+                <p class="text-[10px] text-slate-400 font-semibold tracking-wider uppercase mt-1">Flight Operations System</p>
+            </div>
         </div>
 
-        <nav class="flex-1 overflow-y-auto p-4 space-y-2">
-            <button onclick="switchTab('dispatch')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 bg-blue-600 text-white rounded-lg shadow-lg shadow-blue-900/50 transition">
-                <i class="fa-solid fa-route"></i> Dispatch & Setup
-            </button>
-            <button onclick="switchTab('briefing')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition">
-                <i class="fa-solid fa-file-invoice"></i> Flight Briefing (OFP)
-            </button>
-            <button onclick="switchTab('weather')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition">
-                <i class="fa-solid fa-cloud-sun"></i> Live Wetter & METAR
-            </button>
-            <button onclick="switchTab('announcements')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition">
-                <i class="fa-solid fa-bullhorn"></i> Passagier-Ansagen
-            </button>
-            <button onclick="switchTab('checklists')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition">
-                <i class="fa-solid fa-list-check"></i> SOP Checklisten
-            </button>
-            <button onclick="switchTab('logbook')" class="nav-btn w-full flex items-center gap-3 px-4 py-3 text-slate-400 hover:bg-slate-800 hover:text-white rounded-lg transition">
-                <i class="fa-solid fa-book"></i> Flugarchiv
-            </button>
-        </nav>
-
-        <div class="p-4 border-t border-slate-700 bg-slate-900">
-            <h3 class="text-xs font-bold text-slate-500 uppercase mb-3 tracking-wider"><i class="fa-solid fa-microchip mr-1"></i> Cockpit Systeme</h3>
-            
-            <div class="space-y-3">
-                <div class="flex items-center justify-between bg-slate-800 p-2 rounded border border-slate-700">
-                    <span class="text-sm font-medium text-slate-300">30 Min Alarm</span>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="alarm-toggle" class="sr-only peer" checked>
-                        <div class="w-9 h-5 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
-                    </label>
+        <div class="flex items-center gap-6">
+            <!-- Timer Display -->
+            <div class="flex items-center gap-4 bg-slate-900 px-4 py-2 rounded-lg border border-slate-700 shadow-inner">
+                <div class="text-right">
+                    <p class="text-[10px] text-slate-400 uppercase font-bold">Elapsed Time</p>
+                    <p id="timer-display" class="text-xl font-mono font-bold text-white leading-none">00:00:00</p>
                 </div>
+                <div class="flex gap-2">
+                    <button id="timer-btn" onclick="toggleTimer()" class="w-10 h-10 rounded bg-blue-600 hover:bg-blue-500 flex justify-center items-center transition shadow">
+                        <i id="timer-icon" class="fa-solid fa-play"></i>
+                    </button>
+                    <button onclick="resetTimer()" class="w-10 h-10 rounded bg-slate-700 hover:bg-slate-600 flex justify-center items-center transition shadow">
+                        <i class="fa-solid fa-rotate-left"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Landing Mode Status -->
+            <div id="landing-mode-badge" class="hidden bg-green-900/50 border border-green-500 text-green-400 px-3 py-1 rounded text-sm font-bold flex items-center gap-2">
+                <i class="fa-solid fa-check-circle"></i> STERILE COCKPIT
+            </div>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        
+        <!-- Sidebar Navigation -->
+        <aside class="w-64 glass-panel border-r border-slate-700 flex flex-col shrink-0">
+            <div class="p-4 border-b border-slate-700">
+                <div class="bg-slate-900 rounded p-3 border border-slate-700">
+                    <p class="text-xs text-slate-400 uppercase font-bold mb-1">Flight Status</p>
+                    <p id="sidebar-flight-num" class="font-mono text-lg font-bold text-white mb-2">---</p>
+                    <div class="flex justify-between items-center text-sm font-bold text-slate-300">
+                        <span id="sidebar-dep">---</span>
+                        <i class="fa-solid fa-arrow-right text-slate-500"></i>
+                        <span id="sidebar-arr">---</span>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="flex-1 p-4 space-y-2 overflow-y-auto">
+                <button onclick="switchTab('dispatch')" id="nav-dispatch" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded text-left text-blue-400 bg-blue-900/20 font-semibold transition">
+                    <i class="fa-solid fa-clipboard-list w-5 text-center"></i> Dispatch & Setup
+                </button>
+                <button onclick="switchTab('briefing')" id="nav-briefing" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded text-left text-slate-400 hover:text-white hover:bg-slate-800 font-semibold transition">
+                    <i class="fa-solid fa-file-invoice w-5 text-center"></i> Briefing & Weather
+                </button>
+                <button onclick="switchTab('sop')" id="nav-sop" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded text-left text-slate-400 hover:text-white hover:bg-slate-800 font-semibold transition">
+                    <i class="fa-solid fa-check-double w-5 text-center"></i> SOP Checklists
+                </button>
+                <button onclick="switchTab('map')" id="nav-map" class="nav-btn w-full flex items-center gap-3 px-4 py-3 rounded text-left text-slate-400 hover:text-white hover:bg-slate-800 font-semibold transition">
+                    <i class="fa-solid fa-map w-5 text-center"></i> Route Map
+                </button>
+            </nav>
+
+            <!-- Test Controls -->
+            <div class="p-4 border-t border-slate-700 space-y-2">
+                <p class="text-[10px] text-slate-400 uppercase font-bold mb-2">System Tests</p>
                 
-                <button id="test-alarm-btn" onclick="testAlarm()" class="w-full text-xs bg-slate-700 hover:bg-yellow-600 text-white py-2 rounded transition font-bold border border-slate-600">
-                    <i class="fa-solid fa-bell mr-1"></i> TEST ALARM (10s)
+                <button id="test-alarm-btn" onclick="testAlarm()" class="w-full text-xs bg-slate-700 hover:bg-red-600 text-white py-2 rounded transition font-bold border border-slate-600 mb-2">
+                    <i class="fa-solid fa-bell mr-1"></i> TEST ALARM (30 MIN)
                 </button>
 
-                <div class="flex items-center justify-between bg-slate-800 p-2 rounded border border-slate-700">
+                <button id="test-weather-btn" onclick="testWeatherAlarm()" class="w-full text-xs bg-slate-700 hover:bg-orange-600 text-white py-2 rounded transition font-bold border border-slate-600 mb-2">
+                    <i class="fa-solid fa-cloud-bolt mr-1"></i> TEST WETTER-ALARM
+                </button>
+                
+                <button onclick="testSkipTime()" class="w-full text-xs bg-slate-700 hover:bg-blue-600 text-white py-2 rounded transition font-bold border border-slate-600 mb-2">
+                    <i class="fa-solid fa-forward-fast mr-1"></i> ZEIT: -29 MIN VORSPULEN
+                </button>
+
+                <div class="flex items-center justify-between bg-slate-800 p-2 rounded border border-slate-700 mt-3">
                     <span class="text-sm font-medium text-slate-300">Landemodus</span>
-                    <label class="relative inline-flex items-center cursor-pointer" onclick="toggleLandingMode(event)">
-                        <input type="checkbox" id="landing-mode-toggle" class="sr-only peer">
-                        <div class="w-9 h-5 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-green-500"></div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="landing-mode-toggle" class="sr-only peer" onchange="toggleLandingMode()">
+                        <div class="w-9 h-5 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                     </label>
                 </div>
             </div>
-        </div>
-    </aside>
+        </aside>
 
-    <main class="flex-1 flex flex-col relative overflow-y-auto">
-        <header class="glass-panel sticky top-0 z-10 px-8 py-4 flex justify-between items-center border-b-0 border-slate-700">
-            <div id="active-flight-info" class="text-lg font-bold text-slate-400">Kein aktiver Flug</div>
-            <div class="flex items-center gap-4">
-                <div class="bg-slate-900 border border-slate-700 rounded-lg px-6 py-2 flex items-center gap-4 shadow-inner">
-                    <i class="fa-regular fa-clock text-blue-400 text-xl"></i>
-                    <span id="timer-display" class="font-mono text-2xl font-bold tracking-wider text-white">00:00:00</span>
-                </div>
-                <button id="timer-btn" onclick="toggleTimer()" class="bg-blue-600 hover:bg-blue-500 text-white w-12 h-12 rounded-lg flex items-center justify-center transition shadow-lg">
-                    <i class="fa-solid fa-play" id="timer-icon"></i>
-                </button>
-            </div>
-        </header>
-
-        <div class="p-8 max-w-6xl mx-auto w-full">
+        <main class="flex-1 overflow-y-auto p-6 bg-slate-900/50" id="main-content">
             
-            <!-- DISPATCH TAB -->
+            <!-- TAB: DISPATCH -->
             <div id="dispatch" class="tab-content active space-y-6">
                 <div class="flex justify-between items-end mb-6">
                     <div>
                         <h2 class="text-3xl font-black text-white">Flugplanung</h2>
-                        <p class="text-slate-400 mt-1">SimBrief-Style Dispatch für den MSFS Karrieremodus</p>
+                        <p class="text-slate-400 mt-1">SimBrief Integration & Flug-Parameter</p>
                     </div>
+                </div>
+
+                <!-- SIMBRIEF INTEGRATION -->
+                <div class="glass-panel p-6 rounded-xl border-l-4 border-l-blue-500 mb-6 shadow-lg">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-sm font-bold text-blue-400 uppercase flex items-center gap-2">
+                            <i class="fa-solid fa-cloud-arrow-down"></i> SimBrief Live-Sync
+                        </h3>
+                        <a href="https://dispatch.simbrief.com/options/new" target="_blank" class="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1 rounded text-blue-400 border border-slate-700 transition flex items-center gap-2">
+                            <i class="fa-solid fa-external-link-alt"></i> Auf SimBrief planen
+                        </a>
+                    </div>
+                    
+                    <div class="flex flex-col md:flex-row gap-4 items-end">
+                        <div class="flex-1 w-full">
+                            <label class="block text-xs text-slate-400 mb-1">Dein SimBrief Username (oder ID)</label>
+                            <input type="text" id="simbrief-id" placeholder="z.B. dein Name..." class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition font-mono">
+                        </div>
+                        <button type="button" onclick="fetchSimBrief(event)" class="w-full md:w-auto bg-blue-600 hover:bg-blue-500 text-white font-bold px-8 py-3 rounded transition shadow h-[50px] whitespace-nowrap">
+                            <i class="fa-solid fa-download mr-2"></i> OFP Laden
+                        </button>
+                    </div>
+                    
+                    <div id="sb-error" class="bg-red-900/50 border border-red-500 text-red-300 p-3 rounded text-sm mt-4 hidden flex items-center gap-2"></div>
                 </div>
 
                 <div class="glass-panel p-6 rounded-xl">
                     <h3 class="text-sm font-bold text-slate-400 uppercase mb-4 border-b border-slate-700 pb-2"><i class="fa-solid fa-map-location-dot mr-2"></i>Routing & Details</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div>
                             <label class="block text-xs text-slate-400 mb-1">Flugnummer</label>
-                            <input type="text" id="flight-num" placeholder="z.B. DLH400" class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white font-mono uppercase focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                            <input type="text" id="flight-num" readonly class="w-full bg-slate-800 border border-slate-700 rounded p-3 text-slate-300 outline-none uppercase font-mono cursor-not-allowed">
                         </div>
                         <div>
                             <label class="block text-xs text-slate-400 mb-1">Start (ICAO)</label>
-                            <input type="text" id="dep" placeholder="EDDF" class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white font-mono uppercase focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                            <input type="text" id="dep" readonly class="w-full bg-slate-800 border border-slate-700 rounded p-3 text-slate-300 outline-none uppercase font-mono cursor-not-allowed">
                         </div>
                         <div>
                             <label class="block text-xs text-slate-400 mb-1">Ziel (ICAO)</label>
-                            <input type="text" id="arr" placeholder="KJFK" class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white font-mono uppercase focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition">
+                            <input type="text" id="arr" readonly class="w-full bg-slate-800 border border-slate-700 rounded p-3 text-slate-300 outline-none uppercase font-mono cursor-not-allowed">
                         </div>
                         <div>
                             <label class="block text-xs text-slate-400 mb-1">Distanz (NM)</label>
-                            <div class="flex">
-                                <input type="number" id="dist" placeholder="3400" class="w-full bg-slate-900 border border-slate-600 rounded-l p-3 text-white font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition" min="0">
-                                <button type="button" onclick="autoDistance()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 rounded-r border border-l-0 border-blue-600 transition text-xs whitespace-nowrap">AUTO</button>
-                            </div>
+                            <input type="number" id="dist" readonly class="w-full bg-slate-800 border border-slate-700 rounded p-3 text-slate-300 outline-none font-mono cursor-not-allowed">
                         </div>
                     </div>
+                    <p class="text-xs text-slate-500 mt-3 italic"><i class="fa-solid fa-info-circle mr-1"></i>Diese Felder werden automatisch aus deinem SimBrief OFP ausgefüllt.</p>
                 </div>
-
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div class="glass-panel p-6 rounded-xl">
-                        <h3 class="text-sm font-bold text-slate-400 uppercase mb-4 border-b border-slate-700 pb-2"><i class="fa-solid fa-plane mr-2"></i>Flugzeug (MSFS 2024 Flotte)</h3>
-                        <div class="space-y-4">
-                            <div class="flex gap-4">
-                                <div class="flex-1">
-                                    <label class="block text-xs text-slate-400 mb-1">Flugzeugtyp</label>
-                                    <select id="aircraft" class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition cursor-pointer">
-                                        <optgroup label="Airliner">
-                                            <option value="A320">Airbus A320neo (180 Pax)</option>
-                                            <option value="A330">Airbus A330-300 (290 Pax)</option>
-                                            <option value="B737MAX">Boeing 737 MAX 8 (189 Pax)</option>
-                                            <option value="B747">Boeing 747-8i (410 Pax)</option>
-                                        </optgroup>
-                                        <optgroup label="Fracht / Cargo">
-                                            <option value="BELUGA">Airbus Beluga XL (Cargo)</option>
-                                            <option value="B747F">Boeing 747-8F (Cargo)</option>
-                                        </optgroup>
-                                        <optgroup label="Business Jets & Turboprops">
-                                            <option value="CJ4">Cessna Citation CJ4 (9 Pax)</option>
-                                            <option value="LONGITUDE">Cessna Citation Longitude (12 Pax)</option>
-                                            <option value="VISION">Cirrus Vision SF50 (7 Pax)</option>
-                                            <option value="ATR72">ATR 72-600 (72 Pax)</option>
-                                        </optgroup>
-                                        <optgroup label="General Aviation">
-                                            <option value="C172">Cessna 172 Skyhawk (4 Pax)</option>
-                                            <option value="DA62">Diamond DA62 (7 Pax)</option>
-                                            <option value="SR22">Cirrus SR22 (4 Pax)</option>
-                                            <option value="C208">Cessna 208 Grand Caravan (14 Pax)</option>
-                                        </optgroup>
-                                    </select>
-                                </div>
-                                <div class="flex-1">
-                                    <label class="block text-xs text-slate-400 mb-1">Leergewicht aus Sim (Optional, LBS)</label>
-                                    <input type="number" id="custom-oew" placeholder="z.B. 95000" class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition" min="0">
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="glass-panel p-6 rounded-xl">
-                        <h3 class="text-sm font-bold text-slate-400 uppercase mb-4 border-b border-slate-700 pb-2"><i class="fa-solid fa-weight-hanging mr-2"></i>Karriere Payload</h3>
-                        <div class="space-y-4">
-                            <div>
-                                <label class="block text-xs text-slate-400 mb-1">Gesamt-Nutzlast (Pax + Cargo)</label>
-                                <div class="flex">
-                                    <input type="number" id="payload" placeholder="z.B. 18500" class="w-full bg-slate-900 border border-slate-600 rounded-l p-3 text-white font-medium focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition" min="0">
-                                    <select id="payload-unit" class="bg-slate-800 border-t border-b border-slate-600 text-white font-bold px-2 outline-none cursor-pointer">
-                                        <option value="kg">KG</option>
-                                        <option value="lbs" selected>LBS</option>
-                                    </select>
-                                    <button type="button" onclick="autoPayload()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-3 rounded-r border border-l-0 border-blue-600 transition text-xs whitespace-nowrap">AUTO 45%</button>
-                                </div>
-                                <p id="payload-status" class="text-xs mt-2 hidden"></p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <button onclick="calculateFlightData()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl shadow-[0_0_15px_rgba(5,150,105,0.4)] hover:shadow-[0_0_25px_rgba(5,150,105,0.6)] transition text-lg flex justify-center items-center gap-2 border border-emerald-500">
-                    <i class="fa-solid fa-calculator"></i> Briefing erstellen & berechnen
-                </button>
             </div>
 
-            <!-- BRIEFING TAB -->
+            <!-- TAB: BRIEFING -->
             <div id="briefing" class="tab-content space-y-6">
-                <div class="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
-                    <div>
-                        <h2 class="text-3xl font-black text-white">Flight Briefing</h2>
-                        <p class="text-slate-400 mt-1 font-mono" id="ofp-header">NO FLIGHT PLAN LOADED</p>
-                    </div>
-                    <button onclick="window.print()" class="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded text-sm text-white transition border border-slate-600"><i class="fa-solid fa-print mr-1"></i>Drucken</button>
-                </div>
-
-                <div id="briefing-content" class="hidden space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="glass-panel p-6 rounded-xl border-l-4 border-l-blue-500">
-                            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2"><i class="fa-solid fa-gas-pump text-blue-400"></i> Fuel Planning</h3>
-                            <div class="space-y-3 font-mono text-sm">
-                                <div class="flex justify-between text-slate-300"><span>Trip Fuel:</span> <span id="b-trip" class="font-bold text-white"></span></div>
-                                <div class="flex justify-between text-slate-300"><span>Contingency (5%):</span> <span id="b-cont" class="font-bold text-white"></span></div>
-                                <div class="flex justify-between text-slate-300 border-b border-slate-700 pb-2"><span>30 Min Reserve (Holding):</span> <span id="b-res" class="font-bold text-white"></span></div>
-                                <div class="flex justify-between text-slate-300"><span>Taxi Fuel:</span> <span id="b-taxi" class="font-bold text-white"></span></div>
-                                <div class="flex justify-between text-lg mt-2 pt-2 border-t border-slate-600 bg-slate-800/50 p-2 rounded">
-                                    <span class="text-blue-400 font-bold">BLOCK FUEL:</span> 
-                                    <span id="b-block" class="font-bold text-white"></span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="glass-panel p-6 rounded-xl border-l-4 border-l-orange-500">
-                            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2"><i class="fa-solid fa-scale-balanced text-orange-400"></i> Weight & Balance</h3>
-                            <div class="space-y-3 font-mono text-sm">
-                                <div class="flex justify-between text-slate-300"><span>Empty Wgt (OEW):</span> <span id="b-oew" class="font-bold text-white"></span></div>
-                                <div class="flex justify-between text-slate-300 border-b border-slate-700 pb-2"><span>Payload:</span> <span id="b-pay" class="font-bold text-white"></span></div>
-                                <div class="flex justify-between text-slate-300 font-bold text-orange-300 bg-slate-800/50 p-1 rounded"><span>Zero Fuel Wgt:</span> <span id="b-zfw"></span></div>
-                                <div class="flex justify-between text-slate-300"><span>Fuel Weight:</span> <span id="b-fuelw" class="font-bold text-white"></span></div>
-                                <div class="flex justify-between text-lg mt-2 pt-2 border-t border-slate-600 bg-slate-800/50 p-2 rounded">
-                                    <span class="text-orange-400 font-bold">TAKEOFF (TOW):</span> 
-                                    <span id="b-tow" class="font-bold text-white"></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                
+                <!-- Wetter Modul -->
+                <div class="glass-panel p-6 rounded-xl border-l-4 border-l-blue-400 shadow-lg">
+                    <h3 class="text-sm font-bold text-blue-400 uppercase mb-4"><i class="fa-solid fa-cloud-sun mr-2"></i>Aktuelles Wetter (Live METAR)</h3>
+                    <div id="weather-display" class="bg-slate-900 p-4 rounded border border-slate-700 font-mono text-sm text-slate-300 whitespace-pre-wrap">Wetterdaten werden beim Generieren des Briefings geladen...</div>
                     
-                    <div class="glass-panel p-4 rounded-xl flex justify-around text-center border border-slate-700">
+                    <div id="weather-analysis" class="mt-4 hidden space-y-6">
+                        
+                        <!-- Departure Weather -->
                         <div>
-                            <div class="text-xs text-slate-400 uppercase tracking-widest mb-1">Est. Flight Time</div>
-                            <div class="text-xl font-bold text-white font-mono" id="b-time">--:--</div>
+                            <h4 class="text-xs font-bold text-slate-400 uppercase mb-2 border-b border-slate-700 pb-1">Startflughafen (Departure)</h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div class="bg-slate-800 p-3 rounded border border-slate-600">
+                                    <p class="text-[10px] text-slate-400 uppercase">Temperatur</p>
+                                    <p id="wa-temp-dep" class="text-lg font-bold text-white">--</p>
+                                </div>
+                                <div class="bg-slate-800 p-3 rounded border border-slate-600">
+                                    <p class="text-[10px] text-slate-400 uppercase">Wind</p>
+                                    <p id="wa-wind-dep" class="text-lg font-bold text-white">--</p>
+                                </div>
+                                <div class="bg-slate-800 p-3 rounded border border-slate-600">
+                                    <p class="text-[10px] text-slate-400 uppercase">QNH (Luftdruck)</p>
+                                    <p id="wa-qnh-dep" class="text-lg font-bold text-white">--</p>
+                                </div>
+                                <div class="bg-slate-800 p-3 rounded border border-slate-600">
+                                    <p class="text-[10px] text-slate-400 uppercase">Wolken/Sicht</p>
+                                    <p id="wa-clouds-dep" class="text-sm font-bold text-white">--</p>
+                                </div>
+                            </div>
                         </div>
-                        <div class="w-px bg-slate-700"></div>
-                        <div>
-                            <div class="text-xs text-slate-400 uppercase tracking-widest mb-1">Distance</div>
-                            <div class="text-xl font-bold text-white font-mono" id="b-dist">--- NM</div>
-                        </div>
-                        <div class="w-px bg-slate-700"></div>
-                        <div>
-                            <div class="text-xs text-slate-400 uppercase tracking-widest mb-1">Aircraft</div>
-                            <div class="text-xl font-bold text-white font-mono" id="b-ac">---</div>
-                        </div>
-                    </div>
 
-                    <div class="pt-8">
-                        <button onclick="saveToArchive()" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 rounded-xl shadow-[0_0_15px_rgba(22,163,74,0.4)] hover:shadow-[0_0_25px_rgba(22,163,74,0.6)] transition text-lg flex justify-center items-center gap-2 border border-green-500">
-                            <i class="fa-solid fa-plane-arrival"></i> Flug erfolgreich gelandet (Im Archiv speichern)
-                        </button>
+                        <!-- Arrival Weather -->
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-400 uppercase mb-2 border-b border-slate-700 pb-1">Zielflughafen (Arrival)</h4>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div class="bg-slate-800 p-3 rounded border border-slate-600">
+                                    <p class="text-[10px] text-slate-400 uppercase">Temperatur</p>
+                                    <p id="wa-temp-arr" class="text-lg font-bold text-white">--</p>
+                                </div>
+                                <div class="bg-slate-800 p-3 rounded border border-slate-600">
+                                    <p class="text-[10px] text-slate-400 uppercase">Wind</p>
+                                    <p id="wa-wind-arr" class="text-lg font-bold text-white">--</p>
+                                </div>
+                                <div class="bg-slate-800 p-3 rounded border border-slate-600">
+                                    <p class="text-[10px] text-slate-400 uppercase">QNH (Luftdruck)</p>
+                                    <p id="wa-qnh-arr" class="text-lg font-bold text-white">--</p>
+                                </div>
+                                <div class="bg-slate-800 p-3 rounded border border-slate-600">
+                                    <p class="text-[10px] text-slate-400 uppercase">Wolken/Sicht</p>
+                                    <p id="wa-clouds-arr" class="text-sm font-bold text-white">--</p>
+                                </div>
+                            </div>
+                            <div id="wa-recommendation-arr" class="mt-3 p-3 rounded font-bold text-sm text-center">--</div>
+                        </div>
+
                     </div>
                 </div>
 
-                <div id="briefing-empty" class="text-center py-20 text-slate-500">
-                    <i class="fa-solid fa-file-circle-xmark text-6xl mb-4 opacity-50"></i>
-                    <p class="text-lg">Bitte fülle zuerst das Dispatch-Formular aus und berechne den Flug.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="glass-panel p-6 rounded-xl">
+                        <h3 class="text-sm font-bold text-slate-400 uppercase mb-4 border-b border-slate-700 pb-2"><i class="fa-solid fa-weight-scale mr-2"></i>Weights & Fuel</h3>
+                        <table class="w-full text-sm">
+                            <tr class="border-b border-slate-700/50"><td class="py-2 text-slate-400">Zero Fuel Weight (ZFW)</td><td class="py-2 text-right font-mono text-white font-bold" id="b-zfw">---</td></tr>
+                            <tr class="border-b border-slate-700/50"><td class="py-2 text-slate-400">Block Fuel</td><td class="py-2 text-right font-mono text-white font-bold" id="b-fuel">---</td></tr>
+                            <tr><td class="py-2 text-slate-400">Takeoff Weight (TOW)</td><td class="py-2 text-right font-mono text-blue-400 font-bold text-lg" id="b-tow">---</td></tr>
+                        </table>
+                    </div>
+
+                    <div class="glass-panel p-6 rounded-xl">
+                        <h3 class="text-sm font-bold text-slate-400 uppercase mb-4 border-b border-slate-700 pb-2"><i class="fa-solid fa-users mr-2"></i>Payload</h3>
+                        <table class="w-full text-sm">
+                            <tr class="border-b border-slate-700/50"><td class="py-2 text-slate-400">Passagiere (PAX)</td><td class="py-2 text-right font-mono text-white font-bold" id="b-pax">---</td></tr>
+                            <tr class="border-b border-slate-700/50"><td class="py-2 text-slate-400">Cargo (Freight)</td><td class="py-2 text-right font-mono text-white font-bold" id="b-cargo">---</td></tr>
+                            <tr><td class="py-2 text-slate-400">Est. Flight Time</td><td class="py-2 text-right font-mono text-white font-bold" id="b-time">---</td></tr>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-6 rounded-xl">
+                    <h3 class="text-sm font-bold text-slate-400 uppercase mb-4 border-b border-slate-700 pb-2"><i class="fa-solid fa-bullhorn mr-2"></i>Passagier-Ansagen</h3>
+                    <div class="space-y-4">
+                        <!-- WELCOME -->
+                        <div class="bg-slate-900 p-4 rounded border border-slate-700">
+                            <p class="text-xs text-blue-400 font-bold mb-2 uppercase">Welcome (Boarding)</p>
+                            <p class="text-sm text-slate-300 italic">"Meine Damen und Herren, willkommen an Bord von Flug <span id="pax-flight" class="font-bold text-white">[FLIGHT]</span> nach <span id="pax-dest" class="font-bold text-white">[DEST]</span>. Unsere heutige Flugzeit wird etwa <span id="pax-time" class="font-bold text-white">[TIME]</span> betragen. Wir bitten Sie nun, sich anzuschnallen. Cabin Crew, boarding completed."</p>
+                        </div>
+                        
+                        <!-- CRUISE / WEATHER -->
+                        <div class="bg-slate-900 p-4 rounded border border-slate-700 relative">
+                            <p class="text-xs text-blue-400 font-bold mb-2 uppercase">Cruise Update (Wetter via ACARS)</p>
+                            <p class="text-sm text-slate-300 italic">"Meine Damen und Herren, hier spricht Ihr Kapitän. Wir haben unsere Reiseflughöhe erreicht. Das Wetter an unserem Zielort <span class="font-bold text-white pax-dest-var">[DEST]</span> <span id="pax-weather" class="transition-colors duration-500">ist derzeit noch unbestimmt, wir erwarten jedoch einen ruhigen Flug</span>. Genießen Sie den Service."</p>
+                        </div>
+
+                        <!-- DESCENT -->
+                        <div class="bg-slate-900 p-4 rounded border border-slate-700">
+                            <p class="text-xs text-blue-400 font-bold mb-2 uppercase">Top of Descent</p>
+                            <p class="text-sm text-slate-300 italic">"Meine Damen und Herren, wir haben den Sinkflug nach <span class="font-bold text-white pax-dest-var">[DEST]</span> begonnen. Bitte kehren Sie zu Ihren Plätzen zurück und schnallen Sie sich an. Cabin Crew, prepare for landing."</p>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- WEATHER TAB -->
-            <div id="weather" class="tab-content space-y-6">
-                <h2 class="text-3xl font-black text-white border-b border-slate-700 pb-4">Live Wetter & Analyse</h2>
-                
-                <div class="flex flex-wrap gap-4 mb-6 items-center">
-                    <div class="flex flex-col">
-                        <label class="text-xs text-slate-400 mb-1">Start (ICAO)</label>
-                        <input type="text" id="metar-dep" placeholder="z.B. EDDF" class="bg-slate-900 border border-slate-600 rounded p-3 text-white font-mono uppercase focus:border-blue-500 focus:outline-none w-32 md:w-48">
-                    </div>
-                    <div class="flex flex-col">
-                        <label class="text-xs text-slate-400 mb-1">Ziel (ICAO)</label>
-                        <input type="text" id="metar-arr" placeholder="z.B. KJFK" class="bg-slate-900 border border-slate-600 rounded p-3 text-white font-mono uppercase focus:border-blue-500 focus:outline-none w-32 md:w-48">
-                    </div>
-                    <button onclick="fetchWeather()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-3 mt-5 rounded transition flex items-center gap-2 h-[50px] shadow-lg">
-                        <i class="fa-solid fa-satellite-dish"></i> Wetter & Analyse laden
-                    </button>
+            <div id="sop" class="tab-content space-y-6">
+                <div>
+                    <h2 class="text-3xl font-black text-white">SOP Checklisten</h2>
+                    <p class="text-slate-400 mt-1">Standard Operating Procedures - Quick Reference Handbook</p>
                 </div>
 
-                <div id="weather-results" class="grid grid-cols-1 lg:grid-cols-2 gap-6 hidden">
-                    <!-- Departure Weather -->
-                    <div class="glass-panel p-6 rounded-xl border-l-4 border-l-blue-500 flex flex-col h-full">
-                        <h3 class="text-sm font-bold text-blue-400 mb-3 uppercase flex items-center gap-2"><i class="fa-solid fa-plane-departure"></i> Abflug Wetter</h3>
-                        <div id="weather-res-dep" class="font-mono text-sm text-green-400 bg-slate-900/50 p-3 rounded border border-slate-700 shadow-inner">N/A</div>
-                        <div id="weather-decode-dep" class="mt-4 flex-1"></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    
+                    <!-- Phase 1: Pre-Flight -->
+                    <div class="glass-panel rounded-xl overflow-hidden shadow-lg">
+                        <div class="bg-slate-800 p-3 border-b border-slate-700">
+                            <h3 class="font-bold text-white"><i class="fa-solid fa-1 mr-2 text-blue-500"></i>Pre-Flight / Cockpit Prep</h3>
+                        </div>
+                        <div class="p-2">
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Batteries & APU</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">EIN / START</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">IRS / ADIRU</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">NAV</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">MCDU / FMS Setup</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">ABGESCHLOSSEN</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer transition">
+                                <span class="text-sm text-slate-300">Türen & Fenster</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">GESCHLOSSEN</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                        </div>
                     </div>
-                    <!-- Arrival Weather -->
-                    <div class="glass-panel p-6 rounded-xl border-l-4 border-l-orange-500 flex flex-col h-full">
-                        <h3 class="text-sm font-bold text-orange-400 mb-3 uppercase flex items-center gap-2"><i class="fa-solid fa-plane-arrival"></i> Ankunft Wetter</h3>
-                        <div id="weather-res-arr" class="font-mono text-sm text-green-400 bg-slate-900/50 p-3 rounded border border-slate-700 shadow-inner">N/A</div>
-                        <div id="weather-decode-arr" class="mt-4 flex-1"></div>
-                    </div>
-                </div>
 
-                <p class="text-xs text-slate-500 mt-4 bg-slate-900 p-3 rounded border border-slate-800"><i class="fa-solid fa-shield-halved mr-1 text-slate-400"></i> <strong>Live-Wetter Wächter aktiv:</strong> Überwacht Start und Ziel automatisch alle 5 Minuten auf signifikante Verschlechterungen und warnt per Cockpit-Alarm.</p>
+                    <!-- Phase 2: Before Taxi -->
+                    <div class="glass-panel rounded-xl overflow-hidden shadow-lg">
+                        <div class="bg-slate-800 p-3 border-b border-slate-700">
+                            <h3 class="font-bold text-white"><i class="fa-solid fa-2 mr-2 text-blue-500"></i>Before Taxi</h3>
+                        </div>
+                        <div class="p-2">
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Klappen (Flaps)</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">FÜR START GESETZT</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Autobrake</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">MAX / RTO</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Flugsteuerungen</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">GEPRÜFT</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer transition">
+                                <span class="text-sm text-slate-300">Transponder</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">TA/RA</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Phase 3: Takeoff / Climb -->
+                    <div class="glass-panel rounded-xl overflow-hidden shadow-lg">
+                        <div class="bg-slate-800 p-3 border-b border-slate-700">
+                            <h3 class="font-bold text-white"><i class="fa-solid fa-3 mr-2 text-blue-500"></i>Takeoff & Climb</h3>
+                        </div>
+                        <div class="p-2">
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Landescheinwerfer</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">EIN</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Autopilot / LNAV</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">AKTIV</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer transition">
+                                <span class="text-sm text-slate-300">Höhenmesser (Transition)</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">STANDARD</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Phase 4: Descent / Approach -->
+                    <div class="glass-panel rounded-xl overflow-hidden shadow-lg">
+                        <div class="bg-slate-800 p-3 border-b border-slate-700">
+                            <h3 class="font-bold text-white"><i class="fa-solid fa-4 mr-2 text-blue-500"></i>Descent & Approach</h3>
+                        </div>
+                        <div class="p-2">
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Anflug-Briefing</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">BESTÄTIGT</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Höhenmesser (Lokal)</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">QNH GESETZT</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Autobrake</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">NACH BEDARF</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer transition">
+                                <span class="text-sm text-slate-300">Go-Around Höhe</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">GESETZT</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Phase 5: Landing -->
+                    <div class="glass-panel rounded-xl overflow-hidden shadow-lg">
+                        <div class="bg-slate-800 p-3 border-b border-slate-700">
+                            <h3 class="font-bold text-white"><i class="fa-solid fa-5 mr-2 text-blue-500"></i>Landing</h3>
+                        </div>
+                        <div class="p-2">
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Fahrwerk</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">UNTEN / 3 GRÜN</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Klappen (Flaps)</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">VOLL</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer transition">
+                                <span class="text-sm text-slate-300">Spoilers / Speedbrake</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">SCHARF</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Phase 6: Parking -->
+                    <div class="glass-panel rounded-xl overflow-hidden shadow-lg">
+                        <div class="bg-slate-800 p-3 border-b border-slate-700">
+                            <h3 class="font-bold text-white"><i class="fa-solid fa-6 mr-2 text-blue-500"></i>Parking & Shutdown</h3>
+                        </div>
+                        <div class="p-2">
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Parkbremse</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">GESETZT</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer border-b border-slate-700/50 transition">
+                                <span class="text-sm text-slate-300">Triebwerke</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">ABGESCHALTET</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                            <label class="sop-row flex justify-between items-center p-3 rounded cursor-pointer transition">
+                                <span class="text-sm text-slate-300">Anschnallzeichen</span>
+                                <div class="flex items-center gap-3"><span class="text-xs font-bold text-white">AUS</span><input type="checkbox" class="w-5 h-5 accent-blue-600 rounded"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                </div>
             </div>
 
-            <!-- PA ANNOUNCEMENTS TAB -->
-            <div id="announcements" class="tab-content space-y-6">
-                <h2 class="text-3xl font-black text-white border-b border-slate-700 pb-4">Passagier-Ansagen (PA)</h2>
-                <p class="text-slate-400">Nutze diese Skripte für realistischen Funkverkehr. Die Daten basieren auf deinem Dispatch.</p>
-                
-                <div id="pa-content" class="hidden space-y-6 mt-4">
-                    <div class="glass-panel p-6 rounded border-l-4 border-l-blue-400">
-                        <h3 class="text-blue-400 font-bold mb-2">1. Boarding Welcome</h3>
-                        <p class="text-slate-300 italic">"Meine Damen und Herren, herzlich willkommen an Bord unseres Fluges <span class="font-bold text-white pa-flight">---</span> von <span class="font-bold text-white pa-dep">---</span> nach <span class="font-bold text-white pa-arr">---</span>. Die errechnete Flugzeit beträgt heute <span class="font-bold text-white pa-time">---</span>. Wir schließen in Kürze die Türen."</p>
-                        <p class="text-slate-400 italic mt-2 text-sm">"Ladies and gentlemen, welcome aboard flight <span class="font-bold text-white pa-flight">---</span> from <span class="font-bold text-white pa-dep">---</span> to <span class="font-bold text-white pa-arr">---</span>. Our flight time today will be <span class="font-bold text-white pa-time">---</span>."</p>
-                    </div>
-                    <div class="glass-panel p-6 rounded border-l-4 border-l-emerald-400">
-                        <h3 class="text-emerald-400 font-bold mb-2">2. Cruise / Reiseflug</h3>
-                        <p class="text-slate-300 italic">"Hier spricht Ihr Kapitän. Wir haben unsere Reiseflughöhe erreicht. Das Wetter auf dem Weg nach <span class="font-bold text-white pa-arr">---</span> ist gut, wir erwarten eine pünktliche Landung. Lehnen Sie sich zurück und genießen Sie den Flug."</p>
-                        <p class="text-slate-400 italic mt-2 text-sm">"This is your Captain speaking. We have reached our cruising altitude. Weather enroute to <span class="font-bold text-white pa-arr">---</span> looks good..."</p>
-                    </div>
-                    <div class="glass-panel p-6 rounded border-l-4 border-l-orange-400">
-                        <h3 class="text-orange-400 font-bold mb-2">3. Top of Descent (Anflug)</h3>
-                        <p class="text-slate-300 italic">"Meine Damen und Herren, wir haben soeben den Sinkflug auf <span class="font-bold text-white pa-arr">---</span> begonnen. Bitte schnallen Sie sich an und klappen Sie die Tische hoch. Kabinencrew, bitte bereiten Sie die Kabine für die Landung vor."</p>
-                        <p class="text-slate-400 italic mt-2 text-sm">"Ladies and gentlemen, we have just started our descent into <span class="font-bold text-white pa-arr">---</span>. Please fasten your seatbelts..."</p>
-                    </div>
-                </div>
-                
-                <div id="pa-empty" class="text-center py-10 text-slate-500">
-                    <p>Bitte erst einen Flug im Dispatch berechnen, um die Skripte zu generieren.</p>
-                </div>
-            </div>
-
-            <!-- CHECKLISTS TAB (ADVANCED SOP) -->
-            <div id="checklists" class="tab-content space-y-6">
-                <div class="flex justify-between items-end border-b border-slate-700 pb-4">
+            <div id="map" class="tab-content h-full h-[calc(100vh-120px)] flex flex-col">
+                <div class="flex justify-between items-end mb-4 shrink-0">
                     <div>
-                        <h2 class="text-3xl font-black text-white">Standard Operating Procedures</h2>
-                        <p class="text-slate-400 mt-1">Realistischer 6-Phasen-Flow (QRH)</p>
+                        <h2 class="text-3xl font-black text-white">Route Map</h2>
+                        <p class="text-slate-400 mt-1">SimBrief OFP Routing</p>
                     </div>
                 </div>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <!-- Phase 1 -->
-                    <div class="glass-panel p-4 rounded-xl border-t-4 border-t-blue-500 shadow-lg">
-                        <h3 class="font-bold text-blue-400 mb-3 border-b border-slate-700 pb-2"><i class="fa-solid fa-battery-full mr-2"></i>1. PRE-FLIGHT</h3>
-                        <ul class="space-y-3 text-sm text-slate-300">
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-blue-500"> <span>Battery 1 & 2 ... <strong class="text-white">ON</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-blue-500"> <span>External Power / APU ... <strong class="text-white">ON</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-blue-500"> <span>ADIRS / IRS ... <strong class="text-white">NAV / ALIGN</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-blue-500"> <span>Fuel & Payload ... <strong class="text-white">CHECKED</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-blue-500"> <span>FMC / MCDU ... <strong class="text-white">ROUTE & PERF SET</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-blue-500"> <span>Altimeter (QNH) ... <strong class="text-white">SET LOCAL</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-blue-500"> <span>Flight Director (F/D) ... <strong class="text-white">ON</strong></span></li>
-                        </ul>
+                <div class="glass-panel rounded-xl overflow-hidden flex-1 border border-slate-700 flex items-center justify-center relative bg-slate-900/80">
+                    <div id="map-placeholder" class="text-slate-500 text-center p-6">
+                        <i class="fa-solid fa-map-location-dot text-6xl mb-4 opacity-50"></i>
+                        <p class="font-bold">Keine Route geladen</p>
+                        <p class="text-sm mt-2">Bitte lade einen SimBrief OFP in der Flugplanung, um die Route Map anzuzeigen.</p>
                     </div>
-
-                    <!-- Phase 2 -->
-                    <div class="glass-panel p-4 rounded-xl border-t-4 border-t-teal-500 shadow-lg">
-                        <h3 class="font-bold text-teal-400 mb-3 border-b border-slate-700 pb-2"><i class="fa-solid fa-truck-ramp-box mr-2"></i>2. BEFORE START</h3>
-                        <ul class="space-y-3 text-sm text-slate-300">
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500"> <span>Doors & Hatches ... <strong class="text-white">CLOSED</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500"> <span>APU Bleed ... <strong class="text-white">ON</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500"> <span>External Power ... <strong class="text-white">DISCONNECTED</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500"> <span>Fuel Pumps ... <strong class="text-white">ON</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500"> <span>Beacon Light ... <strong class="text-white">ON</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500"> <span>Parking Brake ... <strong class="text-white">SET</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500"> <span>Transponder ... <strong class="text-white">TA/RA</strong></span></li>
-                        </ul>
-                    </div>
-
-                    <!-- Phase 3 -->
-                    <div class="glass-panel p-4 rounded-xl border-t-4 border-t-emerald-500 shadow-lg">
-                        <h3 class="font-bold text-emerald-400 mb-3 border-b border-slate-700 pb-2"><i class="fa-solid fa-plane-departure mr-2"></i>3. BEFORE TAKEOFF</h3>
-                        <ul class="space-y-3 text-sm text-slate-300">
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-emerald-500"> <span>Flight Controls ... <strong class="text-white">CHECKED</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-emerald-500"> <span>Flaps / Slats ... <strong class="text-white">SET FOR T/O</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-emerald-500"> <span>Pitch Trim / CG ... <strong class="text-white">SET</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-emerald-500"> <span>Autobrake ... <strong class="text-white">RTO / MAX</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-emerald-500"> <span>Cabin Crew ... <strong class="text-white">ADVISED</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-emerald-500"> <span>Strobes & Landing Lights ... <strong class="text-white">ON</strong></span></li>
-                        </ul>
-                    </div>
-
-                    <!-- Phase 4 -->
-                    <div class="glass-panel p-4 rounded-xl border-t-4 border-t-yellow-500 shadow-lg">
-                        <h3 class="font-bold text-yellow-400 mb-3 border-b border-slate-700 pb-2"><i class="fa-solid fa-arrow-trend-down mr-2"></i>4. DESCENT & APPR</h3>
-                        <ul class="space-y-3 text-sm text-slate-300">
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-yellow-500"> <span>Approach Briefing ... <strong class="text-white">COMPLETED</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-yellow-500"> <span>FMC Appr Data ... <strong class="text-white">ENTERED</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-yellow-500"> <span>Altimeter (Transition) ... <strong class="text-white">SET LOCAL</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-yellow-500"> <span>Seatbelt Signs ... <strong class="text-white">ON</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-yellow-500"> <span>Autobrake ... <strong class="text-white">SET (LOW/MED)</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-yellow-500"> <span>ILS Freq / Course ... <strong class="text-white">CHECKED</strong></span></li>
-                        </ul>
-                    </div>
-
-                    <!-- Phase 5 -->
-                    <div class="glass-panel p-4 rounded-xl border-t-4 border-t-orange-500 shadow-lg">
-                        <h3 class="font-bold text-orange-400 mb-3 border-b border-slate-700 pb-2"><i class="fa-solid fa-plane-arrival mr-2"></i>5. BEFORE LANDING</h3>
-                        <ul class="space-y-3 text-sm text-slate-300">
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-orange-500"> <span>Landing Gear ... <strong class="text-white">DOWN, 3 GREEN</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-orange-500"> <span>Auto-Spoilers ... <strong class="text-white">ARMED</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-orange-500"> <span>Flaps ... <strong class="text-white">SET FOR LANDING</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-orange-500"> <span>Missed Approach Alt ... <strong class="text-white">SET</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-orange-500"> <span>Landing Lights ... <strong class="text-white">ON</strong></span></li>
-                        </ul>
-                    </div>
-
-                    <!-- Phase 6 -->
-                    <div class="glass-panel p-4 rounded-xl border-t-4 border-t-slate-400 shadow-lg">
-                        <h3 class="font-bold text-slate-300 mb-3 border-b border-slate-700 pb-2"><i class="fa-solid fa-power-off mr-2"></i>6. PARKING</h3>
-                        <ul class="space-y-3 text-sm text-slate-300">
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-slate-400"> <span>Parking Brake ... <strong class="text-white">SET</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-slate-400"> <span>APU / Ground Power ... <strong class="text-white">ON</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-slate-400"> <span>Engines ... <strong class="text-white">CUTOFF / OFF</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-slate-400"> <span>Seatbelt Signs ... <strong class="text-white">OFF</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-slate-400"> <span>Fuel Pumps ... <strong class="text-white">OFF</strong></span></li>
-                            <li class="flex items-start gap-2"><input type="checkbox" class="w-4 h-4 mt-0.5 cursor-pointer accent-slate-400"> <span>Exterior Lights ... <strong class="text-white">AS REQUIRED</strong></span></li>
-                        </ul>
-                    </div>
+                    <img id="simbrief-map-img" src="" alt="SimBrief Route Map" class="hidden w-full h-full object-contain absolute inset-0 bg-white">
                 </div>
             </div>
 
-            <!-- LOGBOOK TAB -->
-            <div id="logbook" class="tab-content space-y-6">
-                <div class="flex justify-between items-center border-b border-slate-700 pb-4">
-                    <h2 class="text-3xl font-black text-white">Flugarchiv (Logbuch)</h2>
-                    <button onclick="clearArchive()" class="text-red-400 text-sm hover:text-red-300"><i class="fa-solid fa-trash mr-1"></i>Archiv löschen</button>
-                </div>
-                <div id="archive-list" class="space-y-4"></div>
-                <div id="archive-empty" class="text-center py-10 text-slate-500 hidden">
-                    <i class="fa-solid fa-book-open text-5xl mb-4 opacity-50"></i>
-                    <p>Noch keine Flüge gelandet. Schließe einen Flug über das Briefing ab, um ihn hier zu speichern.</p>
-                </div>
-            </div>
-
-        </div>
-    </main>
+        </main>
+    </div>
 
     <!-- ALARM OVERLAY -->
-    <div id="alarm-overlay" class="fixed inset-0 bg-red-900/90 z-50 hidden flex-col justify-center items-center backdrop-blur-sm">
-        <i class="fa-solid fa-triangle-exclamation text-8xl text-red-400 mb-6 animate-bounce"></i>
-        <h1 class="text-5xl font-black text-white mb-2 tracking-widest">PILOT ALERT</h1>
-        <p class="text-2xl text-red-200 mb-10" id="alarm-text">Wachsamkeitskontrolle - 30 Minuten abgelaufen!</p>
-        <button onclick="dismissAlarm()" class="bg-white text-red-900 font-black text-2xl px-12 py-4 rounded-full shadow-[0_0_30px_rgba(255,255,255,0.5)] hover:bg-gray-200 transition transform hover:scale-105">
-            ALARM BESTÄTIGEN (ACK)
+    <div id="alarm-overlay" class="absolute inset-0 bg-red-600/90 flex flex-col justify-center items-center backdrop-blur-sm">
+        <i class="fa-solid fa-triangle-exclamation text-8xl text-white mb-6 animate-pulse"></i>
+        <h2 id="alarm-title" class="text-6xl font-black text-white mb-2 text-center shadow-lg">MASTER WARNING</h2>
+        <p id="alarm-desc" class="text-2xl text-white font-bold mb-10 text-center">30 MIN TO DESTINATION</p>
+        <button onclick="dismissAlarm()" class="bg-white text-red-600 hover:bg-slate-200 font-black text-3xl px-12 py-6 rounded-2xl shadow-[0_0_40px_rgba(255,255,255,0.5)] transition hover:scale-105">
+            ACKNOWLEDGE
         </button>
     </div>
 
-    <!-- LANDING MODE MODAL -->
-    <div id="landing-modal" class="fixed inset-0 bg-black/80 z-50 hidden flex-col justify-center items-center backdrop-blur-sm">
-        <div class="bg-slate-900 p-8 rounded-xl border border-slate-700 max-w-md w-full shadow-2xl text-center">
-            <i class="fa-solid fa-plane-arrival text-4xl text-green-400 mb-4"></i>
-            <h2 class="text-2xl font-bold text-white mb-2">Landemodus aktivieren</h2>
-            <p class="text-slate-400 text-sm mb-6">Bitte bestätige deine aktuelle Flugnummer, um Alarme für den Anflug zu deaktivieren.</p>
-            
-            <input type="text" id="landing-flight-input" placeholder="Flugnummer..." class="w-full bg-slate-800 border border-slate-600 rounded p-3 text-white font-mono uppercase focus:border-green-500 outline-none text-center text-xl mb-4">
-            <p id="landing-error" class="text-red-400 text-sm mb-4 font-bold hidden"></p>
-            
-            <div class="flex gap-4">
-                <button onclick="closeLandingModal()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded transition">Abbrechen</button>
-                <button onclick="verifyLandingMode()" class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded transition">Verifizieren</button>
+    <!-- CUSTOM HTML ALERT MODAL (Replaces standard browser alert) -->
+    <div id="custom-alert" class="modal-overlay absolute inset-0 bg-slate-900/80 hidden flex-col justify-center items-center backdrop-blur-sm">
+        <div class="glass-panel p-6 rounded-xl max-w-md w-full border border-slate-700 shadow-2xl text-center mx-4">
+            <i class="fa-solid fa-circle-exclamation text-4xl text-orange-500 mb-4"></i>
+            <h3 id="custom-alert-title" class="text-xl font-bold text-white mb-2">Hinweis</h3>
+            <p id="custom-alert-msg" class="text-slate-300 mb-6 whitespace-pre-wrap leading-relaxed">...</p>
+            <button onclick="closeCustomAlert()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-lg transition w-full shadow-lg">Verstanden</button>
+        </div>
+    </div>
+
+    <!-- CUSTOM HTML PROMPT MODAL (Replaces standard browser prompt) -->
+    <div id="custom-prompt" class="modal-overlay absolute inset-0 bg-slate-900/80 hidden flex-col justify-center items-center backdrop-blur-sm">
+        <div class="glass-panel p-6 rounded-xl max-w-md w-full border border-slate-700 shadow-2xl mx-4">
+            <h3 class="text-xl font-bold text-white mb-2"><i class="fa-solid fa-lock text-blue-500 mr-2"></i>Sicherheitsabfrage</h3>
+            <p class="text-sm text-slate-300 mb-4">Bitte bestätigen Sie den sterilen Landemodus durch Eingabe der exakten Flugnummer.</p>
+            <input type="text" id="prompt-input" class="w-full bg-slate-900 border border-slate-600 rounded p-3 text-white focus:border-blue-500 outline-none uppercase font-mono mb-6" placeholder="z.B. DLH400">
+            <div class="flex justify-end gap-3">
+                <button onclick="cancelPrompt()" class="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-6 rounded transition">Abbruch</button>
+                <button onclick="confirmPrompt()" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-6 rounded transition shadow">Bestätigen</button>
             </div>
         </div>
     </div>
 
     <script>
-        // --- Aircraft Database & City Map ---
-        const aircraftDB = {
-            'A320': { emptyWeight: 42600, fuelPerNM: 6.5, cruiseSpeed: 450, maxPax: 180 },
-            'A330': { emptyWeight: 119600, fuelPerNM: 13.5, cruiseSpeed: 470, maxPax: 290 },
-            'B737MAX': { emptyWeight: 45070, fuelPerNM: 5.8, cruiseSpeed: 453, maxPax: 189 },
-            'B747': { emptyWeight: 220100, fuelPerNM: 28.0, cruiseSpeed: 490, maxPax: 410 },
-            'BELUGA': { emptyWeight: 86000, fuelPerNM: 12.0, cruiseSpeed: 400, maxPax: 0 },
-            'B747F': { emptyWeight: 197131, fuelPerNM: 28.0, cruiseSpeed: 490, maxPax: 0 },
-            'CJ4': { emptyWeight: 4660, fuelPerNM: 1.8, cruiseSpeed: 420, maxPax: 9 },
-            'LONGITUDE': { emptyWeight: 10614, fuelPerNM: 3.2, cruiseSpeed: 476, maxPax: 12 },
-            'VISION': { emptyWeight: 1610, fuelPerNM: 0.8, cruiseSpeed: 300, maxPax: 7 },
-            'ATR72': { emptyWeight: 13500, fuelPerNM: 3.5, cruiseSpeed: 275, maxPax: 72 },
-            'C172': { emptyWeight: 767, fuelPerNM: 0.25, cruiseSpeed: 110, maxPax: 4 },
-            'DA62': { emptyWeight: 1570, fuelPerNM: 0.35, cruiseSpeed: 171, maxPax: 7 },
-            'SR22': { emptyWeight: 1028, fuelPerNM: 0.3, cruiseSpeed: 183, maxPax: 4 },
-            'C208': { emptyWeight: 2145, fuelPerNM: 1.1, cruiseSpeed: 175, maxPax: 14 }
-        };
+        let timerInterval;
+        let isTimerRunning = false;
+        let elapsedSeconds = 0;
+        let flightTimeSeconds = 0;
+        
+        let thirtyMinAlarmTriggered = false;
+        let landingModeActive = false;
 
-        const cityMap = {
-            'EDDF': 'Frankfurt', 'EDDM': 'München', 'EDDB': 'Berlin', 'EDDH': 'Hamburg', 
-            'EDDK': 'Köln/Bonn', 'EDDL': 'Düsseldorf', 'EDDS': 'Stuttgart', 'EDDP': 'Leipzig',
-            'EDDV': 'Hannover', 'EDDN': 'Nürnberg', 'EDDR': 'Saarbrücken', 'EDDW': 'Bremen',
-            'LOWW': 'Wien', 'LOWI': 'Innsbruck', 'LOWS': 'Salzburg',
-            'LSZH': 'Zürich', 'LSGG': 'Genf', 'LSBS': 'Basel',
-            'EGLL': 'London Heathrow', 'EGKK': 'London Gatwick', 'EGCC': 'Manchester',
-            'EHAM': 'Amsterdam', 'LFPG': 'Paris CDG', 'LFPO': 'Paris Orly',
-            'LEMD': 'Madrid', 'LEBL': 'Barcelona', 'LEPA': 'Palma de Mallorca',
-            'LIRF': 'Rom', 'LIMC': 'Mailand', 'LIPZ': 'Venedig',
-            'LPPT': 'Lissabon', 'LPMA': 'Madeira', 'GCLP': 'Gran Canaria', 'GCTS': 'Teneriffa',
-            'EKCH': 'Kopenhagen', 'ENGM': 'Oslo', 'ESSA': 'Stockholm',
-            'KJFK': 'New York (JFK)', 'KEWR': 'New York (Newark)', 'KLAX': 'Los Angeles',
-            'KSFO': 'San Francisco', 'KORD': 'Chicago', 'KMIA': 'Miami', 'KATL': 'Atlanta',
-            'KSEA': 'Seattle', 'KLAS': 'Las Vegas', 'KDEN': 'Denver', 'KDFW': 'Dallas',
-            'OMDB': 'Dubai', 'OTHH': 'Doha', 'VHHH': 'Hong Kong', 'RJTT': 'Tokio',
-            'YSSY': 'Sydney', 'YMML': 'Melbourne', 'CYYZ': 'Toronto', 'CYVR': 'Vancouver',
-            'SBGR': 'São Paulo', 'FAOR': 'Johannesburg', 'WSSS': 'Singapur'
-        };
+        let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let beepInterval = null;
 
-        let currentFlightData = null;
-        let isAlarmPlaying = false; 
+        let lastExtractedTemp = "";
+        let lastExtractedDesc = "";
+        let pendingWeatherAlarm = false;
 
-        // --- Custom Toast Notifications ---
-        function showToast(message, isError = true) {
-            const toast = document.createElement('div');
-            toast.className = `px-6 py-3 rounded-lg shadow-xl text-white font-bold transform transition-all duration-300 opacity-0 translate-y-[-20px] ${isError ? 'bg-red-600' : 'bg-green-600'}`;
-            toast.innerHTML = `<i class="fa-solid ${isError ? 'fa-triangle-exclamation' : 'fa-check-circle'} mr-2"></i> ${message}`;
-            document.getElementById('toast-container').appendChild(toast);
-            
-            setTimeout(() => { toast.classList.remove('opacity-0', 'translate-y-[-20px]'); }, 10);
-            setTimeout(() => {
-                toast.classList.add('opacity-0', 'translate-y-[-20px]');
-                setTimeout(() => toast.remove(), 300);
-            }, 3500);
+        function showCustomAlert(title, msg) {
+            document.getElementById('custom-alert-title').innerText = title;
+            document.getElementById('custom-alert-msg').innerText = msg;
+            document.getElementById('custom-alert').style.display = 'flex';
         }
 
-        // --- Navigation ---
+        function closeCustomAlert() {
+            document.getElementById('custom-alert').style.display = 'none';
+        }
+
+        function showCustomPrompt() {
+            document.getElementById('prompt-input').value = ""; // Clear old input
+            document.getElementById('custom-prompt').style.display = 'flex';
+            document.getElementById('prompt-input').focus();
+        }
+
+        function cancelPrompt() {
+            document.getElementById('custom-prompt').style.display = 'none';
+            document.getElementById('landing-mode-toggle').checked = false; // Reset toggle
+        }
+
+        function confirmPrompt() {
+            const currentFN = document.getElementById('flight-num').value;
+            const userInput = document.getElementById('prompt-input').value;
+            
+            document.getElementById('custom-prompt').style.display = 'none';
+
+            if (userInput && userInput.toUpperCase() === currentFN.toUpperCase()) {
+                landingModeActive = true;
+                document.getElementById('landing-mode-badge').classList.remove('hidden');
+                // Wenn wir im Alarm-Zustand sind, können wir ihn durch den Landemodus auch gleich wegschalten:
+                if (document.getElementById('alarm-overlay').style.display === 'flex') {
+                    dismissAlarm();
+                }
+            } else {
+                document.getElementById('landing-mode-toggle').checked = false;
+                showCustomAlert("Abgelehnt", "Die eingegebene Flugnummer stimmt nicht überein.\nDer Landemodus bleibt deaktiviert.");
+            }
+        }
+
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.nav-btn').forEach(el => {
-                el.classList.remove('bg-blue-600', 'text-white', 'shadow-lg', 'shadow-blue-900/50');
+                el.classList.remove('text-blue-400', 'bg-blue-900/20');
                 el.classList.add('text-slate-400');
             });
             
             document.getElementById(tabId).classList.add('active');
-            event.currentTarget.classList.remove('text-slate-400');
-            event.currentTarget.classList.add('bg-blue-600', 'text-white', 'shadow-lg', 'shadow-blue-900/50');
-            
-            if(tabId === 'logbook') renderArchive();
+            document.getElementById('nav-' + tabId).classList.add('text-blue-400', 'bg-blue-900/20');
+            document.getElementById('nav-' + tabId).classList.remove('text-slate-400');
         }
 
-        // --- Auto Distance (Internet Simulation) ---
-        function autoDistance() {
-            const dep = document.getElementById('dep').value.trim().toUpperCase();
-            const arr = document.getElementById('arr').value.trim().toUpperCase();
-            
-            if(!dep || !arr) { 
-                showToast("Bitte erst Start- und Ziel-ICAO eintragen!"); 
-                return; 
-            }
-            
-            let simDist = Math.floor(Math.random() * 2000) + 300; 
-            if(dep === 'EDDF' && arr === 'LPMA') simDist = 1520;
-            if(dep === 'EGLL' && arr === 'KJFK') simDist = 3010;
-            
-            const ifrDist = Math.round(simDist * 1.1);
-            document.getElementById('dist').value = ifrDist;
-            
-            const btn = event.currentTarget;
-            btn.innerHTML = "<i class='fa-solid fa-check'></i>";
-            btn.classList.add('bg-green-600');
-            showToast(`GPS-Distanz per Server ermittelt + 10% IFR-Aufschlag: ${ifrDist} NM`, false);
-            setTimeout(() => { btn.innerHTML = "AUTO"; btn.classList.remove('bg-green-600'); }, 2000);
-        }
-
-        // --- Auto Payload (45% in LBS) ---
-        function autoPayload() {
-            const acType = document.getElementById('aircraft').value;
-            const ac = aircraftDB[acType];
-            const statusEl = document.getElementById('payload-status');
-            
-            let totalKg = 0;
-            if (ac.maxPax === 0) {
-                totalKg = Math.round(ac.emptyWeight * 0.6);
-                statusEl.innerHTML = `Frachtflugzeug. Cargo-Simulierung erfolgreich.`;
-            } else {
-                const paxCount = Math.round(ac.maxPax * 0.45);
-                for(let i=0; i<paxCount; i++) {
-                    totalKg += Math.floor(Math.random() * (100 - 66 + 1)) + 66; // Random Person 66-100kg
-                    totalKg += 23; // Standard Koffergewicht
-                }
-                statusEl.innerHTML = `${paxCount} Passagiere berechnet (Zufall 66-100kg) + je 23kg Koffer.`;
-            }
-            
-            const resultLbs = Math.round(totalKg * 2.20462);
-            document.getElementById('payload-unit').value = 'lbs';
-            document.getElementById('payload').value = resultLbs;
-            
-            statusEl.classList.remove('hidden', 'text-red-400');
-            statusEl.classList.add('text-green-400');
-            showToast("Nutzlast (45%) berechnet und in LBS eingetragen!", false);
-        }
-
-        // --- Calculator Engine ---
-        function calculateFlightData() {
-            try {
-                const flightNum = document.getElementById('flight-num').value.toUpperCase() || 'UNKNOWN';
-                const dep = document.getElementById('dep').value.toUpperCase() || 'XXXX';
-                const arr = document.getElementById('arr').value.toUpperCase() || 'XXXX';
-                const distStr = document.getElementById('dist').value;
-                const dist = parseInt(distStr) || 0;
-                const acType = document.getElementById('aircraft').value;
-                const aircraft = aircraftDB[acType];
-                
-                let rawPayload = parseInt(document.getElementById('payload').value) || 0;
-                const payloadUnit = document.getElementById('payload-unit').value;
-                
-                if (dist === 0) {
-                    showToast("Bitte eine Distanz eingeben oder auf AUTO klicken!"); return;
-                }
-
-                // Flight Time Calc
-                const timeHours = dist / aircraft.cruiseSpeed;
-                const hrs = Math.floor(timeHours);
-                const mins = Math.round((timeHours - hrs) * 60);
-                const flightTimeStr = `${hrs}h ${mins}m`;
-                const estimatedSeconds = Math.round(timeHours * 3600); 
-
-                // Fuel Calc
-                const tripFuel = Math.round(dist * aircraft.fuelPerNM);
-                const contFuel = Math.round(tripFuel * 0.05);
-                const distIn30Min = aircraft.cruiseSpeed * 0.5;
-                const resFuel = Math.round(distIn30Min * aircraft.fuelPerNM);
-                const taxiFuel = aircraft.emptyWeight > 20000 ? 250 : 20; 
-                const blockFuel = tripFuel + resFuel + contFuel + taxiFuel;
-
-                // Weights Calc (mit Fallback auf sichere Zahlen)
-                const customOewEl = document.getElementById('custom-oew');
-                let customOewInput = NaN;
-                if(customOewEl && customOewEl.value) {
-                    customOewInput = Math.abs(parseInt(customOewEl.value));
-                }
-
-                const oewKg = (!isNaN(customOewInput) && customOewInput > 0) ? Math.round(customOewInput / 2.20462) : aircraft.emptyWeight;
-                const payloadKg = payloadUnit === 'lbs' ? Math.round(rawPayload / 2.20462) : rawPayload;
-                
-                const zfwKg = oewKg + payloadKg;
-                const towKg = zfwKg + blockFuel;
-
-                // Formatting Kg and Lbs
-                const fmtWgt = (kg) => {
-                    const lbs = Math.round(kg * 2.20462);
-                    return `${kg.toLocaleString('de-DE')} kg / <span class="text-slate-400">${lbs.toLocaleString('de-DE')} lbs</span>`;
-                };
-                
-                const fmtFuel = (kg) => {
-                    const lbs = Math.round(kg * 2.20462);
-                    const gal = Math.round(kg / 3.04);
-                    return `${kg.toLocaleString('de-DE')} kg / <span class="text-slate-400">${lbs.toLocaleString('de-DE')} lbs</span> <span class="text-blue-300 text-xs ml-1">(${gal.toLocaleString('de-DE')} gal)</span>`;
-                };
-
-                document.getElementById('b-trip').innerHTML = fmtFuel(tripFuel);
-                document.getElementById('b-cont').innerHTML = fmtFuel(contFuel);
-                document.getElementById('b-res').innerHTML = fmtFuel(resFuel);
-                document.getElementById('b-taxi').innerHTML = fmtFuel(taxiFuel);
-                document.getElementById('b-block').innerHTML = fmtFuel(blockFuel);
-
-                document.getElementById('b-oew').innerHTML = fmtWgt(oewKg);
-                document.getElementById('b-pay').innerHTML = fmtWgt(payloadKg);
-                document.getElementById('b-zfw').innerHTML = fmtWgt(zfwKg);
-                document.getElementById('b-fuelw').innerHTML = fmtWgt(blockFuel);
-                document.getElementById('b-tow').innerHTML = fmtWgt(towKg);
-
-                document.getElementById('b-time').innerText = flightTimeStr;
-                document.getElementById('b-dist').innerText = `${dist} NM`;
-                document.getElementById('b-ac').innerText = acType;
-                
-                document.getElementById('ofp-header').innerText = `OFP: ${flightNum} | ${dep} > ${arr} | Date: ${new Date().toLocaleDateString('de-DE')}`;
-                
-                currentFlightData = { flightNum, dep, arr, dist, blockFuel, tow: towKg, flightTimeStr, estimatedSeconds };
-                document.getElementById('active-flight-info').innerText = `Aktiv: ${flightNum} (${dep}-${arr})`;
-
-                // Wetter Auto-Fill
-                document.getElementById('metar-dep').value = dep !== 'XXXX' ? dep : '';
-                document.getElementById('metar-arr').value = arr !== 'XXXX' ? arr : '';
-
-                // Generator Updates
-                generatePAs(flightNum, dep, arr, flightTimeStr);
-
-                document.getElementById('briefing-empty').classList.add('hidden');
-                document.getElementById('briefing-content').classList.remove('hidden');
-                
-                showToast("Briefing erfolgreich generiert!", false);
-                switchTab('briefing');
-            } catch (e) {
-                console.error(e);
-                showToast("Fehler bei der Berechnung. Bitte Eingabefelder prüfen.");
-            }
-        }
-
-        // --- Weather & Watchdog System ---
-        let lastMetarDep = null;
-        let lastMetarArr = null;
-        let weatherInterval = null;
-
-        function analyzeWeather(icao, vis, wind, rawString) {
-            let explanation = `
-                <div class="border-t border-slate-700 pt-3 mt-1 space-y-1 text-sm">
-                    <div class="flex justify-between"><span class="text-slate-400">Wind:</span> <span class="font-bold text-white">240° mit ${wind} Knoten</span></div>
-                    <div class="flex justify-between"><span class="text-slate-400">Sichtweite (Vis):</span> <span class="font-bold text-white">${vis} Meter</span></div>
-                    <div class="flex justify-between"><span class="text-slate-400">Wolken:</span> <span class="font-bold text-white">Broken auf 4000 Fuß</span></div>
-                    <div class="flex justify-between"><span class="text-slate-400">Temp / Taupunkt:</span> <span class="font-bold text-white">12°C / 8°C</span></div>
-                    <div class="flex justify-between"><span class="text-slate-400">Luftdruck (QNH):</span> <span class="font-bold text-white">1012 hPa</span></div>
-                </div>
-            `;
-
-            let recs = [];
-            let alertLevel = 'green';
-
-            if (wind > 15) {
-                recs.push("<i class='fa-solid fa-wind mr-1'></i> <strong>Starker Wind/Böen:</strong> Seitenwind-Korrektur beim Start/Landung anwenden.");
-                alertLevel = 'orange';
-            }
-            if (wind > 20) {
-                recs.push("<i class='fa-solid fa-triangle-exclamation mr-1'></i> <strong>Turbulenzen möglich:</strong> Seatbelt-Signs ON lassen.");
-                alertLevel = 'red';
-            }
-            if (vis < 3000) {
-                recs.push("<i class='fa-solid fa-smog mr-1'></i> <strong>Schlechte Sicht (LVP):</strong> ILS Anflug vorbereiten. Ggf. Autobrake auf Stufe 3/MAX.");
-                alertLevel = alertLevel === 'red' ? 'red' : 'orange';
-            }
-            if (vis < 1500) {
-                recs.push("<i class='fa-solid fa-eye-low-vision mr-1'></i> <strong>Extrem schlechte Sicht:</strong> Autoland (CAT III) in Betracht ziehen. Ausweichflughafen (Alternate) prüfen!");
-                alertLevel = 'red';
-            }
-            if (recs.length === 0) {
-                recs.push("<i class='fa-solid fa-check-circle mr-1'></i> <strong>Gutes Flugwetter:</strong> Optimale VFR/IFR Flugbedingungen. Keine besonderen Maßnahmen nötig.");
-                alertLevel = 'green';
-            }
-
-            let alertColorClass = alertLevel === 'red' ? 'bg-red-900/50 text-red-200 border-red-700' : 
-                                  (alertLevel === 'orange' ? 'bg-orange-900/50 text-orange-200 border-orange-700' : 'bg-green-900/50 text-green-200 border-green-700');
-
-            let recsHtml = `
-                <div class="mt-4 p-4 rounded-lg border shadow-lg ${alertColorClass}">
-                    <h4 class="font-bold mb-2 uppercase text-xs tracking-wider border-b border-white/20 pb-1">Cockpit-Empfehlungen:</h4>
-                    <ul class="space-y-3 text-sm leading-relaxed">
-                        ${recs.map(r => `<li>${r}</li>`).join('')}
-                    </ul>
-                </div>
-            `;
-
-            return explanation + recsHtml;
-        }
-
-        function fetchWeather() {
-            const depIcao = document.getElementById('metar-dep').value.toUpperCase();
-            const arrIcao = document.getElementById('metar-arr').value.toUpperCase();
-            
-            if (!depIcao && !arrIcao) {
-                showToast("Bitte mindestens Start oder Ziel eingeben.");
-                return;
-            }
-            
-            document.getElementById('weather-results').classList.remove('hidden');
-            
-            const generateMETAR = (icao) => {
-                if(!icao) return null;
-                const vis = Math.floor(Math.random() * 8000) + 1000;
-                const wind = Math.floor(Math.random() * 25);
-                const windStr = wind.toString().padStart(2, '0');
-                
-                const now = new Date();
-                const day = now.getUTCDate().toString().padStart(2, '0');
-                const hr = now.getUTCHours().toString().padStart(2, '0');
-                const min = now.getUTCMinutes().toString().padStart(2, '0');
-                
-                return { 
-                    icao: icao, vis: vis, wind: wind, 
-                    raw: `${icao} ${day}${hr}${min}Z 240${windStr}KT ${vis}m BKN040 12/08 Q1012 NOSIG` 
-                };
-            };
-            
-            if(depIcao) {
-                lastMetarDep = generateMETAR(depIcao);
-                document.getElementById('weather-res-dep').innerHTML = lastMetarDep.raw;
-                document.getElementById('weather-decode-dep').innerHTML = analyzeWeather(depIcao, lastMetarDep.vis, lastMetarDep.wind, lastMetarDep.raw);
-            }
-
-            if(arrIcao) {
-                lastMetarArr = generateMETAR(arrIcao);
-                document.getElementById('weather-res-arr').innerHTML = lastMetarArr.raw;
-                document.getElementById('weather-decode-arr').innerHTML = analyzeWeather(arrIcao, lastMetarArr.vis, lastMetarArr.wind, lastMetarArr.raw);
-            }
-
-            showToast("Wetterdaten & Analyse erfolgreich geladen!", false);
-            
-            if(!weatherInterval) {
-                weatherInterval = setInterval(checkWeatherChanges, 300000); 
-            }
-        }
-
-        function checkWeatherChanges() {
-            if(!timerInterval) return; 
-            
-            const processStation = (lastMetar) => {
-                if(!lastMetar) return lastMetar;
-                
-                const newVis = lastMetar.vis - (Math.random() * 2000);
-                const newWind = lastMetar.wind + (Math.random() * 10);
-                
-                if (newVis < 3000 && lastMetar.vis >= 3000) {
-                    triggerAlarm(`WETTERWARNUNG ${lastMetar.icao}: Sicht unter 3000m gefallen!`, true);
-                } else if (newWind > 15 && lastMetar.wind <= 15) {
-                    triggerAlarm(`WETTERWARNUNG ${lastMetar.icao}: Starker Wind/Böen detektiert!`, true);
-                }
-                
-                lastMetar.vis = newVis;
-                lastMetar.wind = newWind;
-                return lastMetar;
-            };
-
-            lastMetarDep = processStation(lastMetarDep);
-            lastMetarArr = processStation(lastMetarArr);
-        }
-
-        // --- PA Announcements & Archiv ---
-        function generatePAs(flight, dep, arr, time) {
-            const depCity = cityMap[dep] || dep;
-            const arrCity = cityMap[arr] || arr;
-            
-            document.querySelectorAll('.pa-flight').forEach(el => el.innerText = flight);
-            document.querySelectorAll('.pa-dep').forEach(el => el.innerText = depCity);
-            document.querySelectorAll('.pa-arr').forEach(el => el.innerText = arrCity);
-            document.querySelectorAll('.pa-time').forEach(el => el.innerText = time);
-            
-            document.getElementById('pa-empty').classList.add('hidden');
-            document.getElementById('pa-content').classList.remove('hidden');
-        }
-
-        function saveToArchive() {
-            if(!currentFlightData) return;
-            
-            if(timerInterval) toggleTimer(); 
-            const blockTime = document.getElementById('timer-display').innerText;
-            
-            const logEntry = {
-                date: new Date().toLocaleString('de-DE'),
-                flight: currentFlightData.flightNum,
-                route: `${currentFlightData.dep} ➔ ${currentFlightData.arr}`,
-                dist: currentFlightData.dist,
-                fuel: currentFlightData.blockFuel,
-                tow: currentFlightData.tow,
-                blockTime: blockTime
-            };
-            
-            let archive = JSON.parse(localStorage.getItem('msfs_logbook') || '[]');
-            archive.unshift(logEntry); 
-            localStorage.setItem('msfs_logbook', JSON.stringify(archive));
-            
-            showToast("Flug erfolgreich im Archiv gespeichert!", false);
-            switchTab('logbook');
-        }
-
-        function renderArchive() {
-            const archive = JSON.parse(localStorage.getItem('msfs_logbook') || '[]');
-            const list = document.getElementById('archive-list');
-            const empty = document.getElementById('archive-empty');
-            
-            list.innerHTML = '';
-            
-            if(archive.length === 0) {
-                empty.classList.remove('hidden');
-            } else {
-                empty.classList.add('hidden');
-                archive.forEach(log => {
-                    const fuelLbs = Math.round(log.fuel * 2.20462).toLocaleString('de-DE');
-                    const div = document.createElement('div');
-                    div.className = "glass-panel p-4 rounded-xl border-l-4 border-l-green-500 flex justify-between items-center";
-                    div.innerHTML = `
-                        <div>
-                            <div class="flex items-center gap-3 mb-1">
-                                <span class="font-bold text-lg text-white">${log.flight}</span>
-                                <span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">${log.date}</span>
-                            </div>
-                            <div class="text-sm text-slate-400 font-mono">${log.route} | ${log.dist} NM</div>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-green-400 font-bold font-mono text-lg">${log.blockTime}</div>
-                            <div class="text-xs text-slate-500 mt-1">Fuel: ${log.fuel.toLocaleString('de-DE')}kg (${fuelLbs}lbs)</div>
-                        </div>
-                    `;
-                    list.appendChild(div);
-                });
-            }
-        }
-
-        function clearArchive() {
-            if(confirm("Möchtest du dein komplettes Logbuch wirklich löschen?")) {
-                localStorage.removeItem('msfs_logbook');
-                renderArchive();
-                showToast("Archiv erfolgreich gelöscht.");
-            }
-        }
-
-        // --- Audio & Timers ---
-        let timerSeconds = 0;
-        let timerInterval = null;
-        let isLandingMode = false;
-        
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        
-        function playTone(freq, type, duration, vol=0.5) {
-            if(audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.type = type;
-            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-            gain.gain.setValueAtTime(vol, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + duration);
-        }
-
-        function triggerAlarm(msg, isWeather = false) {
-            if (isAlarmPlaying) return; 
-            isAlarmPlaying = true;
-
-            document.getElementById('alarm-overlay').classList.remove('hidden');
-            document.getElementById('alarm-overlay').classList.add('flex');
-            document.getElementById('alarm-text').innerText = msg;
-            
-            window.alarmInterval = setInterval(() => {
-                if(isWeather) {
-                    playTone(800, 'square', 0.2);
-                    setTimeout(() => playTone(1200, 'square', 0.4), 200);
-                } else {
-                    playTone(600, 'sawtooth', 0.5);
-                    setTimeout(() => playTone(800, 'sawtooth', 0.5), 500);
-                }
-            }, 1000);
-        }
-
-        function dismissAlarm() {
-            document.getElementById('alarm-overlay').classList.add('hidden');
-            document.getElementById('alarm-overlay').classList.remove('flex');
-            if (window.alarmInterval) {
-                clearInterval(window.alarmInterval);
-                window.alarmInterval = null;
-            }
-            isAlarmPlaying = false;
-            timerSeconds = 0; 
-        }
-
-        function testAlarm() {
-            const btn = document.getElementById('test-alarm-btn');
-            btn.innerHTML = "Warte 10s...";
-            btn.classList.add('bg-yellow-600');
-            btn.disabled = true;
-            
-            if(audioCtx.state === 'suspended') audioCtx.resume();
-            playTone(440, 'sine', 0.1, 0.1); 
-
-            setTimeout(() => {
-                triggerAlarm("TEST ALARM ERFOLGREICH!");
-                btn.innerHTML = "<i class='fa-solid fa-bell mr-1'></i> TEST ALARM (10s)";
-                btn.classList.remove('bg-yellow-600');
-                btn.disabled = false;
-            }, 10000);
+        function formatTime(secs) {
+            const h = Math.floor(secs / 3600).toString().padStart(2, '0');
+            const m = Math.floor((secs % 3600) / 60).toString().padStart(2, '0');
+            const s = (secs % 60).toString().padStart(2, '0');
+            return `${h}:${m}:${s}`;
         }
 
         function toggleTimer() {
-            const btn = document.getElementById('timer-btn');
             const icon = document.getElementById('timer-icon');
-            
-            if(audioCtx.state === 'suspended') audioCtx.resume();
-
-            if (timerInterval) {
+            if (isTimerRunning) {
                 clearInterval(timerInterval);
-                timerInterval = null;
-                btn.classList.remove('bg-red-600', 'hover:bg-red-500', 'alarm-active');
-                btn.classList.add('bg-blue-600', 'hover:bg-blue-500');
                 icon.classList.replace('fa-pause', 'fa-play');
-                showToast("Timer pausiert.");
+                isTimerRunning = false;
             } else {
-                btn.classList.remove('bg-blue-600', 'hover:bg-blue-500');
-                btn.classList.add('bg-red-600', 'hover:bg-red-500', 'alarm-active');
+                timerInterval = setInterval(updateTimer, 1000);
                 icon.classList.replace('fa-play', 'fa-pause');
-                showToast("Flug-Timer gestartet!", false);
-                
-                timerInterval = setInterval(() => {
-                    timerSeconds++;
-                    const h = Math.floor(timerSeconds / 3600).toString().padStart(2, '0');
-                    const m = Math.floor((timerSeconds % 3600) / 60).toString().padStart(2, '0');
-                    const s = (timerSeconds % 60).toString().padStart(2, '0');
-                    document.getElementById('timer-display').innerText = `${h}:${m}:${s}`;
-
-                    const alarmEnabled = document.getElementById('alarm-toggle').checked;
-                    if (alarmEnabled && !isLandingMode && timerSeconds >= 1800) {
-                        triggerAlarm("Wachsamkeitskontrolle - 30 Minuten abgelaufen!");
-                    }
-                }, 1000);
+                isTimerRunning = true;
+                if (audioCtx.state === 'suspended') audioCtx.resume();
             }
         }
 
-        function toggleLandingMode(event) {
-            event.preventDefault(); 
+        function updateTimer() {
+            elapsedSeconds++;
+            document.getElementById('timer-display').innerText = formatTime(elapsedSeconds);
+            
+            if (flightTimeSeconds > 0 && !landingModeActive) {
+                const remaining = flightTimeSeconds - elapsedSeconds;
+                if (remaining <= 1800 && remaining > 1795 && !thirtyMinAlarmTriggered) {
+                    triggerAlarm("30 MIN TO DESTINATION", false);
+                    thirtyMinAlarmTriggered = true;
+                }
+            }
+        }
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            isTimerRunning = false;
+            elapsedSeconds = 0;
+            thirtyMinAlarmTriggered = false;
+            document.getElementById('timer-display').innerText = "00:00:00";
+            document.getElementById('timer-icon').classList.replace('fa-pause', 'fa-play');
+        }
+
+        function testSkipTime() {
+            if (flightTimeSeconds === 0) {
+                showCustomAlert("Fehler", "Bitte lade zuerst einen SimBrief-Flug!");
+                return;
+            }
+            // Spult exakt auf 29 Minuten vor Ankunft vor (1740 Sekunden)
+            elapsedSeconds = flightTimeSeconds - 1740;
+            if (elapsedSeconds < 0) elapsedSeconds = 0;
+            document.getElementById('timer-display').innerText = formatTime(elapsedSeconds);
+            showCustomAlert("Zeit vorgespult", "Die Flugzeit wurde auf exakt 29 Minuten vor Ankunft vorgespult.\n\nDu kannst jetzt den Landemodus-Schalter gefahrlos testen!");
+        }
+
+        function toggleLandingMode() {
             const toggle = document.getElementById('landing-mode-toggle');
             
-            if (toggle.checked) {
+            if (!toggle.checked) {
+                landingModeActive = false;
+                document.getElementById('landing-mode-badge').classList.add('hidden');
+                return;
+            }
+
+            if (flightTimeSeconds === 0) {
                 toggle.checked = false;
-                isLandingMode = false;
-                showToast("Landemodus deaktiviert.");
-            } else {
-                if(!currentFlightData) {
-                    showToast("Kein aktiver Flug! Bitte erst im Dispatch berechnen.");
-                    return;
-                }
-                document.getElementById('landing-flight-input').value = '';
-                document.getElementById('landing-error').classList.add('hidden');
-                document.getElementById('landing-modal').classList.remove('hidden');
-                document.getElementById('landing-modal').classList.add('flex');
+                showCustomAlert("Fehler", "Es wurde noch kein Flug geladen.\nBitte lade zuerst deinen SimBrief OFP!");
+                return;
             }
+
+            const remaining = flightTimeSeconds - elapsedSeconds;
+            if (remaining > 1800) {
+                toggle.checked = false;
+                const mins = Math.floor((remaining - 1800) / 60);
+                showCustomAlert("Sperre aktiv", `Der Landemodus kann erst 30 Minuten vor der geplanten Ankunft aktiviert werden!\n\nNoch zu fliegen bis zur Freischaltung: ${mins} Minuten.`);
+                return;
+            }
+
+            // Anstelle von prompt() öffnen wir unser eigenes Modal:
+            showCustomPrompt();
         }
 
-        function closeLandingModal() {
-            document.getElementById('landing-modal').classList.add('hidden');
-            document.getElementById('landing-modal').classList.remove('flex');
-        }
+        async function fetchSimBrief(event) {
+            let sbInput = document.getElementById('simbrief-id').value.trim();
+            const errEl = document.getElementById('sb-error');
+            errEl.classList.add('hidden');
 
-        function verifyLandingMode() {
-            const input = document.getElementById('landing-flight-input').value.toUpperCase();
-            const err = document.getElementById('landing-error');
+            if (!sbInput) {
+                errEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Bitte Username oder Pilot ID eingeben!';
+                errEl.classList.remove('hidden');
+                return;
+            }
             
-            if(input !== currentFlightData.flightNum) {
-                err.innerText = "Falsche Flugnummer!";
-                err.classList.remove('hidden');
-                return;
-            }
+            const btn = event.currentTarget;
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Lade OFP...';
+            
+            try {
+                let isID = !isNaN(sbInput);
+                let url = isID 
+                    ? `https://www.simbrief.com/api/xml.fetcher.php?userid=${sbInput}&json=1`
+                    : `https://www.simbrief.com/api/xml.fetcher.php?username=${sbInput}&json=1`;
+                
+                let data;
+                try {
+                    const response = await fetch(url);
+                    data = await response.json();
+                } catch(e) {
+                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                    const proxyResp = await fetch(proxyUrl);
+                    const proxyData = await proxyResp.json();
+                    data = JSON.parse(proxyData.contents);
+                }
+                
+                if (data.fetch && data.fetch.status !== "Success") {
+                    throw new Error(data.fetch.status || "Unknown Error");
+                }
+                
+                // Routendaten eintragen
+                const fn = (data.general.icao_airline + data.general.flight_number).toUpperCase();
+                document.getElementById('flight-num').value = fn;
+                document.getElementById('dep').value = data.origin.icao_code.toUpperCase();
+                document.getElementById('arr').value = data.destination.icao_code.toUpperCase();
+                document.getElementById('dist').value = Math.round(parseFloat(data.general.route_distance));
+                
+                document.getElementById('sidebar-flight-num').innerText = fn;
+                document.getElementById('sidebar-dep').innerText = data.origin.icao_code.toUpperCase();
+                document.getElementById('sidebar-arr').innerText = data.destination.icao_code.toUpperCase();
 
-            const timeRemaining = currentFlightData.estimatedSeconds - timerSeconds;
-            if (timeRemaining > 1800) {
-                const waitMins = Math.ceil((timeRemaining - 1800) / 60);
-                err.innerText = `Zugriff verweigert! Landemodus erst in ${waitMins} Minuten verfügbar!`;
-                err.classList.remove('hidden');
-                return;
-            }
+                // Zeit
+                if (data.times && data.times.est_time_enroute) {
+                    flightTimeSeconds = parseInt(data.times.est_time_enroute);
+                    document.getElementById('b-time').innerText = formatTime(flightTimeSeconds);
+                    
+                    const actualHrs = flightTimeSeconds / 3600;
+                    document.getElementById('pax-time').innerText = Math.floor(actualHrs) + " Stunden und " + Math.round((actualHrs % 1) * 60) + " Minuten";
+                }
 
-            isLandingMode = true;
-            document.getElementById('landing-mode-toggle').checked = true;
-            closeLandingModal();
-            showToast("Landemodus aktiviert. Alarme pausiert.", false);
+                // Gewichte (immer LBS laut Nutzerwunsch)
+                let zfwStr = "---";
+                let fuelStr = "---";
+                let towStr = "---";
+                let cargoStr = "---";
+                let paxStr = "---";
+                
+                if (data.weights) {
+                    const simbriefUnit = data.params.units; // kgs or lbs
+                    let factor = (simbriefUnit === 'kgs') ? 2.20462 : 1.0;
+                    
+                    let zfw = parseFloat(data.weights.est_zfw) * factor;
+                    let fuel = parseFloat(data.weights.plan_ramp) * factor;
+                    let tow = parseFloat(data.weights.est_tow) * factor;
+                    let cargo = parseFloat(data.weights.cargo) * factor;
+                    let pax = parseInt(data.weights.pax_count);
+                    
+                    zfwStr = Math.round(zfw).toLocaleString() + " LBS";
+                    fuelStr = Math.round(fuel).toLocaleString() + " LBS";
+                    towStr = Math.round(tow).toLocaleString() + " LBS";
+                    cargoStr = Math.round(cargo).toLocaleString() + " LBS";
+                    paxStr = pax;
+                }
+                
+                document.getElementById('b-zfw').innerText = zfwStr;
+                document.getElementById('b-fuel').innerText = fuelStr;
+                document.getElementById('b-tow').innerText = towStr;
+                document.getElementById('b-cargo').innerText = cargoStr;
+                document.getElementById('b-pax').innerText = paxStr;
+
+                // Namen für Ansagen
+                const depName = data.origin.name || data.origin.icao_code;
+                const arrName = data.destination.name || data.destination.icao_code;
+                document.getElementById('pax-flight').innerText = fn;
+                document.getElementById('pax-dest').innerText = arrName;
+                document.querySelectorAll('.pax-dest-var').forEach(el => el.innerText = arrName);
+
+                // Map
+                try {
+                    let mapUrl = "";
+                    if(data.images && data.images.map && data.images.map.length > 0) {
+                        const mapLink = data.images.map[0].link;
+                        if(mapLink.startsWith('http')) mapUrl = mapLink;
+                        else if (data.images.directory) mapUrl = data.images.directory + mapLink;
+                    }
+                    if (mapUrl) {
+                        document.getElementById('simbrief-map-img').src = mapUrl;
+                        document.getElementById('simbrief-map-img').classList.remove('hidden');
+                        document.getElementById('map-placeholder').classList.add('hidden');
+                    }
+                } catch(mapError) {
+                    console.log("Map Error:", mapError);
+                }
+
+                // Wetter laden
+                fetchLiveWeather(data.origin.icao_code.toUpperCase(), data.destination.icao_code.toUpperCase());
+
+                btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Erfolgreich geladen!';
+                setTimeout(() => { btn.innerHTML = originalHtml; switchTab('briefing'); }, 1500);
+
+            } catch (error) {
+                console.error("SimBrief Error:", error);
+                errEl.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Fehler! Hast du auf SimBrief wirklich "Generate Flight" geklickt?';
+                errEl.classList.remove('hidden');
+                btn.innerHTML = originalHtml;
+            }
         }
 
-        renderArchive();
+        async function fetchLiveWeather(dep, arr) {
+            const display = document.getElementById('weather-display');
+            display.innerText = `Lade Wetter für ${dep} und ${arr}...`;
+            
+            try {
+                const url = `https://aviationweather.gov/api/data/metar?ids=${dep},${arr}&format=json`;
+                let data;
+                try {
+                    const response = await fetch(url);
+                    data = await response.json();
+                } catch (e) {
+                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+                    const proxyResp = await fetch(proxyUrl);
+                    const proxyData = await proxyResp.json();
+                    data = JSON.parse(proxyData.contents);
+                }
+
+                if (data && data.length > 0) {
+                    let text = "";
+                    let depMetar = "";
+                    let arrMetar = "";
+                    
+                    data.forEach(m => {
+                        text += `[${m.icaoId}] ${m.rawOb}\n`;
+                        if (m.icaoId === arr) arrMetar = m.rawOb;
+                        if (m.icaoId === dep) depMetar = m.rawOb;
+                    });
+                    
+                    display.innerText = text;
+                    document.getElementById('weather-analysis').classList.remove('hidden');
+                    
+                    if (depMetar) decodeWeatherString(depMetar, 'dep');
+                    if (arrMetar) decodeWeatherString(arrMetar, 'arr');
+
+                } else {
+                    display.innerText = "Keine Wetterdaten bei AviationWeather gefunden.";
+                }
+            } catch (error) {
+                display.innerText = "Fehler beim Laden der Wetterdaten.";
+            }
+        }
+
+        function decodeWeatherString(metarStr, typePrefix) {
+            if (!metarStr) return;
+            
+            let temp = "--";
+            let wind = "--";
+            let qnh = "--";
+            let clouds = "Clear / CAVOK";
+            let descStr = "ruhiges Wetter";
+            let recommendation = "<span class='text-green-400'><i class='fa-solid fa-check-circle'></i> Wetter ist gut. Normale Operationen.</span>";
+
+            const parts = metarStr.split(" ");
+            
+            for (let part of parts) {
+                // Temperatur (z.B. 15/10 oder M05/M10)
+                if (part.includes("/") && part.length >= 5) {
+                    let tPart = part.split("/")[0];
+                    if (tPart.startsWith('M')) {
+                        temp = "-" + tPart.substring(1) + "°C";
+                    } else if (!isNaN(tPart)) {
+                        temp = tPart + "°C";
+                    }
+                }
+                
+                // QNH (Luftdruck)
+                if (part.startsWith('Q') && part.length === 5) {
+                    qnh = part.substring(1) + " hPa";
+                } else if (part.startsWith('A') && part.length === 5 && !isNaN(part.substring(1))) {
+                    qnh = (parseInt(part.substring(1)) / 100).toFixed(2) + " inHg";
+                }
+            }
+
+            // Wind
+            const windMatch = metarStr.match(/(\d{3}|VRB)(\d{2,3})(G\d{2,3})?KT/);
+            if (windMatch) {
+                const dir = windMatch[1];
+                const spd = windMatch[2];
+                const gust = windMatch[3] ? windMatch[3] : "";
+                wind = `${dir}° / ${spd}${gust} kt`;
+                
+                if (parseInt(spd) > 20 || gust) {
+                    recommendation = "<span class='text-orange-400'><i class='fa-solid fa-triangle-exclamation'></i> Starkwind/Böen! Limits prüfen.</span>";
+                    descStr = "etwas windige Bedingungen";
+                }
+            }
+
+            // Wolken & Sicht
+            if (metarStr.includes("CAVOK")) { 
+                clouds = "CAVOK (Freie Sicht)"; 
+                descStr = "hervorragende Sichtverhältnisse"; 
+            } else {
+                let cList = [];
+                if (metarStr.includes("FEW")) cList.push("Wenig Wolken");
+                if (metarStr.includes("SCT")) cList.push("Aufgelockert");
+                if (metarStr.includes("BKN")) cList.push("Bewölkt");
+                if (metarStr.includes("OVC")) { cList.push("Bedeckt"); descStr = "eine geschlossene Wolkendecke"; }
+                
+                if (metarStr.includes(" FG") || metarStr.includes(" BR") || metarStr.includes("LVP")) {
+                    cList.push("Nebel/Dunst");
+                    if(typePrefix === 'arr') recommendation = "<span class='text-red-400'><i class='fa-solid fa-triangle-exclamation'></i> LVP: Eingeschränkte Sicht! Autoland vorbereiten.</span>";
+                    descStr = "Nebel und eingeschränkte Sicht";
+                }
+                if (metarStr.includes(" RA") || metarStr.includes(" SH")) { cList.push("Regen"); descStr = "Regenwetter"; }
+                if (metarStr.includes(" TS") || metarStr.includes(" CB")) {
+                    cList.push("Gewitter");
+                    if(typePrefix === 'arr') recommendation = "<span class='text-red-400'><i class='fa-solid fa-bolt'></i> GEWITTER! Wetterradar aktivieren.</span>";
+                    descStr = "Gewitteraktivität";
+                }
+                if (metarStr.includes(" SN")) { cList.push("Schnee"); descStr = "Schneefall"; }
+                
+                if (cList.length > 0) clouds = cList.join(", ");
+            }
+
+            document.getElementById(`wa-temp-${typePrefix}`).innerText = temp;
+            document.getElementById(`wa-wind-${typePrefix}`).innerText = wind;
+            document.getElementById(`wa-qnh-${typePrefix}`).innerText = qnh;
+            document.getElementById(`wa-clouds-${typePrefix}`).innerText = clouds;
+
+            if (typePrefix === 'arr') {
+                document.getElementById('wa-recommendation-arr').innerHTML = recommendation;
+                // Save for PA system
+                lastExtractedTemp = temp !== "--" ? temp : null;
+                lastExtractedDesc = descStr;
+            }
+        }
+
+        function playMasterWarning() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+            osc.frequency.setValueAtTime(1000, audioCtx.currentTime + 0.2);
+            gain.gain.value = 0.4;
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.4);
+        }
+
+        function playChime() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(500, audioCtx.currentTime);
+            osc.frequency.setValueAtTime(750, audioCtx.currentTime + 0.3);
+            osc.frequency.setValueAtTime(1000, audioCtx.currentTime + 0.6);
+            gain.gain.value = 0.8; 
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 2.0);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 2.0);
+        }
+
+        function triggerAlarm(msg, isWeather = false) {
+            if (landingModeActive) return;
+
+            const overlay = document.getElementById('alarm-overlay');
+            const title = document.getElementById('alarm-title');
+            const desc = document.getElementById('alarm-desc');
+            
+            desc.innerText = msg;
+            
+            if (isWeather) {
+                overlay.classList.replace('bg-red-600/90', 'bg-orange-500/90');
+                title.innerText = "WEATHER UPDATE";
+                title.classList.remove('animate-pulse');
+                playChime();
+                pendingWeatherAlarm = true;
+            } else {
+                overlay.classList.replace('bg-orange-500/90', 'bg-red-600/90');
+                title.innerText = "MASTER WARNING";
+                title.classList.add('animate-pulse');
+                
+                if (beepInterval) clearInterval(beepInterval);
+                playMasterWarning();
+                beepInterval = setInterval(playMasterWarning, 600); // ENDLESS LOOP
+                pendingWeatherAlarm = false;
+            }
+
+            overlay.style.display = 'flex';
+        }
+
+        function dismissAlarm() {
+            if (beepInterval) {
+                clearInterval(beepInterval);
+                beepInterval = null;
+            }
+            document.getElementById('alarm-overlay').style.display = 'none';
+
+            if (pendingWeatherAlarm) {
+                const weatherSpan = document.getElementById('pax-weather');
+                let updateText = "";
+                
+                if (lastExtractedTemp && lastExtractedDesc) {
+                    updateText = `meldet derzeit ${lastExtractedTemp} und ${lastExtractedDesc}`;
+                } else if (lastExtractedTemp) {
+                    updateText = `meldet derzeit ${lastExtractedTemp}`;
+                } else if (lastExtractedDesc) {
+                    updateText = `meldet bei derzeit unbekannten Temperaturen ${lastExtractedDesc}`;
+                } else {
+                    updateText = `ist derzeit wechselhaft, wir erwarten aber eine sichere Landung`;
+                }
+
+                weatherSpan.innerText = updateText;
+                weatherSpan.classList.add('text-green-400');
+                setTimeout(() => weatherSpan.classList.remove('text-green-400'), 5000);
+                
+                pendingWeatherAlarm = false;
+            }
+        }
+
+        function testAlarm() { triggerAlarm("SYSTEM TEST", false); }
+        function testWeatherAlarm() { triggerAlarm("WETTERWARNUNG: Signifikante Änderung", true); }
     </script>
 </body>
 </html>
